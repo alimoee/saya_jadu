@@ -10,6 +10,7 @@
 | K-lite | منشی دیجیتال (گوشی/پیام شب) | ✅ greeting + fallback محترمانه |
 | F-lite | چت مشتری ↔ مدیر | ✅ پیام مشتری به مدیر و `/reply` برای پاسخ |
 | D | یادآور موعد (نسیه/قبض) | ✅ `/remind` دقیقه‌ای یا `YYYY-MM-DD` + حلقه‌ی ارسال |
+| D | یادآور **صوتی** (فارسی) | ✅ TTS با `fa-IR-DilaraNeural` (edge-tts)؛ بدون بک‌اند ← متن |
 | A-lite | فرمان صوتی | ⚠️ اسکلت آماده (STT اختیاری)؛ بدون بک‌اند → fallback |
 | K | نردبان اعتبار (سقف + تأیید مالک + پرداخت) | ✅ `/credit` `/approve` `/pay` `/balance` |
 | K | گزارش صبح ساعت ۹ (فاکتور + نسیه‌ی سررسید + عقب‌افتاده) | ✅ خودکار (TZ_HOURS) |
@@ -51,7 +52,7 @@ python3 bot.py
 python3 bot.py --selftest
 ```
 
-کل پایپ‌لاین آفلاین (اعداد/تقویم، parse فاکتور، انبار، یادآور، نردبان اعتبار، گزارش صبح، مسیرهای گفت‌وگو با Telegram mock) — باید `SELFTEST OK: 35/35` باشد.
+کل پایپ‌لاین آفلاین (اعداد/تقویم، parse فاکتور، انبار، یادآور، نردبان اعتبار، گزارش صبح، مسیرهای گفت‌وگو با Telegram mock) — باید `SELFTEST OK: 36/36` باشد.
 
 ## نمونه‌ی دستورات
 
@@ -68,7 +69,15 @@ python3 bot.py --selftest
 /stats                 ← خلاصه‌ی ثبت‌ها
 ```
 
-## systemd (اجرای دائم روی VPS)
+## اجرا با Docker (توصیه‌شده)
+راهنمای کامل: `vps/SETUP.md`
+
+```bash
+cp bot/.env.example .env && nano .env
+docker compose -f bot/docker-compose.yml up -d --build
+```
+
+## systemd (اجرای دائم روی VPS — بدون Docker)
 
 ```ini
 # /etc/systemd/system/saya-bot.service
