@@ -63,7 +63,7 @@ FUNNEL = [
     ("بازار کل اصناف خرد", 3_200_000, 0.10),
     ("دیجیتال‌پذیر + گوشی", None, 0.05),
     ("لید کیفی", None, 0.15),
-    ("تریال فعال ۱۴ روزه", None, 0.35),
+    ("تریال فعال ۷ روزه", None, 0.35),
     ("مشتری پرداخت‌کننده", None, 0.60),
 ]
 
@@ -101,6 +101,12 @@ def plan_quarter_margin(plan, model="mini", paid_voice=False, fx=FX):
 def plan_quarter_margin_pct(plan, model="mini", paid_voice=False, fx=FX):
     p = PLANS[plan]
     return 100.0 * plan_quarter_margin(plan, model, paid_voice, fx) / p["price"]
+
+
+def plan_month_margin_pct(plan, model="mini", paid_voice=False, fx=FX):
+    """حاشیه‌ی چرخه‌ی ۳۰روزه = (قیمت − هزینه‌ی ۱ ماه) / قیمت، درصد."""
+    p = PLANS[plan]
+    return 100.0 * (p["price"] - plan_monthly_cost(plan, model, paid_voice, fx)) / p["price"]
 
 
 def arpu_monthly(model="mini", paid_voice=False, fx=FX, mix=None, cycle="quarter"):
@@ -177,9 +183,9 @@ HYBRID_LLM_SHARE = 0.20         # مغز هیبرید: ۲۰٪ گفتگوها ب�
 VPS_MONTHLY = 8_000_000         # VPS + درگاه + دامنه + متفرقه (ASSUMPTION)
 DUNNING_LOSS = 0.05             # از دست‌رفتن تمدید (بی‌پرداختی/فراموشی)
 
-TRIAL_DAYS = 14
+TRIAL_DAYS = 7                  # سایت: «۷ روز آزمایش رایگان»
 TRIALS_PER_PAID = 1.0 / 0.35    # قیف: تریال→پرداخت ۳۵٪
-TRIAL_COST_PER = 25_000         # هزینه‌ی LLM/SMS یک تریال ۱۴ روزه (ASSUMPTION)
+TRIAL_COST_PER = 12_500         # هزینه‌ی LLM/SMS یک تریال ۷ روزه (ASSUMPTION — متناسب‌شده از ۲۵k/۱۴روز)
 
 # باتری (اعتبار مصرفی) — مصرف خرد ماهانه هر مغازه (ASSUMPTION)
 BATTERY = {
@@ -188,7 +194,7 @@ BATTERY = {
     "daftar":       dict(extra_invoices=300, extra_llm_chats=150),
 }
 BATTERY_PRICE_PER_INVOICE = 500      # تومان (سایت، پلن دفتر)
-BATTERY_PRICE_PER_LLM_CHAT = 1_000   # تومان — پیشنهاد ما (≈۵× هزینه‌ی mini) (ASSUMPTION)
+BATTERY_PRICE_PER_LLM_CHAT = 1_000   # تومان — تأیید مالک ۲۵ شهریور ۱۴۰۵ (≈۵× هزینه‌ی mini)
 
 def battery_monthly(plan, age, fx=FX):
     """(درآمد، هزینه) باتری ماهِ age هر مغازه. مصرف ۳ ماه اول ramp-up دارد."""
@@ -278,16 +284,30 @@ def cashflow_v2(months=18, target_slope=120, onboarding_capacity=30,
     return net, be, burn, new_series
 
 # ── خروجی / تست ───────────────────────────────────────
+def min_growth_for_be(months=18, fixed=FIXED_MINIMAL, cycle="month", lo=10, hi=400):
+    """کمترین رشد مغازه/ماه (ramp ۶ماهه + سقف=هدف) که تا ماهِ months سربه‌سر می‌شود."""
+    while lo < hi:
+        mid = (lo + hi) // 2
+        be = cashflow_v2(months=months, target_slope=mid, onboarding_capacity=mid,
+                         cycle=cycle, fixed=fixed)[1]
+        if be is not None and be <= months:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo if lo <= hi else None
+
+
 def report():
     today = datetime.date(2026, 9, 15)
-    print("اقتصاد واحد سایا — مدل v2 (repo) — %s" % today)
+    print("اقتصاد واحد سایا — مدل v2.1 (بنیاد: چرخه‌ی ۳۰روزه) — %s" % today)
     print("FX=%s ت/دلار | markup LLM ×%.1f | صوت: رایگان (edge-tts+Vosk)\n" % (format(FX, ","), LLM_MARKUP))
-    print("— تناقض دوره‌ی صورتحساب (یافته‌ی کلیدی) —")
-    print("  سایت: «۹۹۰ هر فصل» و «۳۳ هزار در روز» — ۳۳k×۹۰روز=۲.۹۷M ≠ ۹۹k")
+    print("— چرخه‌ی صورتحساب: ۳۰ روز (تصمیم مالک ۲۵ شهریور ۱۴۰) —")
+    print("  تناقض قدیمی سایت («هر فصل» vs «۳۳k/روز») با پچ ۲۵ شهریور رفع شد؛ بنیاد: ماه (۹۹۰k/ماه = ۳۳k/روز)")
     for c in ("quarter", "month"):
-        print("  تفسیر %-8s → ARPU ماهانه %s ت" % (c, format(int(arpu_monthly(cycle=c)), ",")))
-    print("\n— اقتصاد واحد (حاشیه‌ی هر پلن، دوره‌ی quarter=۹۰روز) —")
-    hdr = "%-10s %14s" % ("پلن", "قیمت/فصل")
+        tag = "بنیاد (ماه)" if c == "month" else "ردشده (فصل)"
+        print("  %-18s ARPU مؤثر ماهانه %s ت" % (tag, format(int(arpu_monthly(cycle=c)), ",")))
+    print("\n— اقتصاد واحد (حاشیه‌ی هر پلن، چرخه‌ی بنیادی ۳۰روزه) —")
+    hdr = "%-10s %14s" % ("پلن", "قیمت/ماه")
     for m in ("rule", "mini", "mid"):
         hdr += " %14s" % ("LLM " + m)
     print(hdr)
@@ -295,8 +315,7 @@ def report():
         p = PLANS[k]
         row = "%-10s %14s" % (p["label"], format(p["price"], ","))
         for m in ("rule", "mini", "mid"):
-            mg = plan_quarter_margin(k, m)
-            row += " %13s%%" % format(int(100 * mg / p["price"]), ",").rjust(13)
+            row += " %13s%%" % format(int(plan_month_margin_pct(k, m)), ",").rjust(13)
         print(row)
     print("\n— هزینه‌ی LLM بر هر گفتگو (تومان) —")
     for m in ("mini", "mid", "top"):
@@ -340,11 +359,12 @@ def report():
             PLANS[k]["label"], format(int(rev), ","), format(int(cost), ","),
             int(100 * (rev - cost) / rev) if rev else 0))
     print("\n— سناریوهای عملیاتی (ماهانه) —")
+    mg = min_growth_for_be()
     for fixed, slope, cap, tag in (
         (FIXED_MINIMAL, 120, 120, "تیم کامل (۹۵۰M) + رشد ۱۲/ماه"),
-        (FIXED_MINIMAL, 110, 110, "حداقل رشد برای سربه‌سر ۱۸ماهه (۱۱۰/ماه)"),
+        (FIXED_MINIMAL, mg, mg, "حداقل رشد محاسبه‌شده (%s/ماه)" % format(mg, ",")),
         (450_000_000, 80, 80, "تیم لاغر (۴۵۰M) + رشد ۸۰/ماه"),
-        (450_000_000, 60, 60, "تیم لاغر (۴۵M) + رشد ۶۰/ماه"),
+        (450_000_000, 60, 60, "تیم لاغر (۴۵۰M) + رشد ۶۰/ماه"),
         (FIXED_MINIMAL, 30, 30, "تنها مالک (سقف ۳۰/ماه) — عدم امکان"),
     ):
         _n, be, burn, _ns = cashflow_v2(target_slope=slope, onboarding_capacity=cap,
@@ -427,6 +447,15 @@ def selftest():
     assert be_drift is None or be_drift >= (be_fresh or 1)
     # team_breakdown جمع می‌شود
     assert abs(sum(v for _n, v in team_breakdown()) - FIXED_MINIMAL) < 1
+    # حاشیه‌ی چرخه‌ی ۳۰روزه (بنیاد)
+    assert plan_month_margin_pct("maghaze", "rule") > 95
+    assert 0 < plan_month_margin_pct("maghaze", "mini") < 100
+    assert plan_month_margin_pct("maghaze", "mid") < 0
+    assert plan_month_margin_pct("daftar", "mid") > 0
+    # تریال ۷ روزه (سایت)
+    assert TRIAL_DAYS == 7
+    # بنیاد: ماه
+    assert arpu_monthly(cycle="month") > arpu_monthly(cycle="quarter")
     print("UNIT-ECON SELFTEST OK")
 
 
