@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""سایا-جادو — ربات تلگرام (MVP فز ۱)
+اجرا:  BOT_TOKEN=... MANAGER_CHAT_ID=... python3 bot.py
+تست آفلاین:  python3 bot.py --selftest     (بدون توکن، بدون شبکه)
+فقط stdlib؛ بک‌اند OCR/STT اختیاری (env) با fallback محترمانه."""
+import os
+import signal
+import sys
+import threading
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import store as storemod
+import talk
+from persian import fa_num  # noqa: E402
+
+
+def selftest():
+    """کل پایپ‌لاین آفلاین: amla -> parse -> anbar -> reminder -> dialogue."""
+    import tempfile
+    import datetime
+    from persian import jalali, to_int
+    import ocr as ocrmod
+
+    def _fa(s):
+        return "".join(chr(0x06F0 + int(c)) if c.isdigit() else c for c in s).replace(",", "\u066C")
+
+    ok = 0
+    def check(name, cond):
+        nonlocal ok
+        print(("  PASS " if cond else "  FAIL ") + name)
+        assert cond, name
+        ok += 1
+
+    print("— persian —")
+    check("fa_num thousands", fa_num(68265000) == _fa("68,265,000"))
+    check("fa_num small", fa_num(10457, sep=False) == _fa("10457"))
+    check("to_int fa", to_int(_fa("68,265,000")) == 68265000)
+    check("to_int ascii", to_int("68,265,000") == 68265000)
+    check("jalali 2026-10-14", jalali(datetime.date(2026, 10, 14)) == _fa("22") + " " + "مهر" + " " + _fa("1405"))
+
+    print("— ocr parse —")
+    sample = (
+        "فاکتور فروش\n"
+        "شماره: 10457\n"
+        "گوشت بره ۱۰ کیلویی   40 x 1\u066C600\u066C000\n"
+        "سبزیجات   1 x 4\u066C265\u066C000\n"
+        "مجموع: " + _fa("68,265,000") + "\n"
+    )
+    p = ocrmod.parse_invoice(sample)
+    check("parse no", p is not None and p["no"] == "10457")
+    check("parse total", p is not None and p["total"] == 68265000)
+    check("parse items", p is not None and len(p["items"]) == 2)
+    check("items sum", ocrmod.items_sum(p["items"]) == 68265000)
+    check("parse fails without total", ocrmod.parse_invoice("چیزی بدون جمع") is None)
+
+    print("— store —")
+    with tempfile.TemporaryDirectory() as td:
+        st = storemod.Store(os.path.join(td, "t.db"))
+        iid = st.add_invoice("restoran", "10457", 68265000,
+                             [["گوشت بره ۱۰ کیلویی", 40, 1600000],
+                              ["سبزیجات", 1, 4265000]], "", "ocr")
+        check("invoice saved", st.last_invoice()["total"] == 68265000)
+        check("items json", st.last_invoice()["items"][0][0] == "گوشت بره ۱۰ کیلویی")
+        rid = st.add_reminder("علی", 12345, "وقت پرداخت است", time.time() - 60)
+        due = st.due_reminders()
+        check("reminder due", len(due) == 1 and due[0]["id"] == rid)
+        st.mark_reminder(rid)
+        check("reminder marked", st.due_reminders() == [])
+
+    print("— talk (mock tg) —")
+    sent = []
+    class MockTG:
+        def download_file(self, fid):
+            return b"\xff\xd8fakejpg"
+        def send_message(self, chat_id, text):
+            sent.append((chat_id, text))
+            return {"ok": True}
+        def send_photo(self, chat_id, blob, caption=""):
+            sent.append((chat_id, "PHOTO:" + caption))
+            return {"ok": True}
+        def safe_send(self, cid, text, stx=None, kind="s"):
+            sent.append((cid, text))
+            return True
+    talk.ocr_image_stub = None
+
+    with tempfile.TemporaryDirectory() as td:
+        st = storemod.Store(os.path.join(td, "t2.db"))
+        os.environ["SAYA_DATA"] = os.path.join(td, "data")
+        os.environ["MANAGER_CHAT_ID"] = "999"
+
+        # فاکتور با بک‌اند mock
+        import talk as talkmod
+        real_ocr = talkmod.ocrmod.ocr_image
+        talkmod.ocrmod.ocr_image = lambda b: sample
+        msg = {"chat": {"id": 111, "type": "private"},
+               "from": {"first_name": "مدیر"},
+               "photo": [{"file_id": "F1"}],
+               "message_id": 1}
+        talkmod.handle(msg, st, MockTG())
+        talkmod.ocrmod.ocr_image = real_ocr
+
+        check("invoice reply sent", any(_fa("68,265,000") in t for (_c, t) in sent if isinstance(t, str)))
+        check("items in reply", any("گوشت بره" in t for (_c, t) in sent if isinstance(t, str)))
+        check("stored in db", st.invoice_count() == 1)
+
+        # بدون بک‌اند OCR -> fallback
+        talkmod.ocrmod.ocr_image = lambda b: None
+        sent.clear()
+        talkmod.handle(msg, st, MockTG())
+        talkmod.ocrmod.ocr_image = real_ocr
+        check("ocr-missing fallback", any("مبلغ: عدد" in t for (_c, t) in sent if isinstance(t, str)))
+
+        # ثبت دستی
+        sent.clear()
+        talkmod.handle({"chat": {"id": 111}, "from": {"first_name": "م"},
+                        "text": "مبلغ: " + _fa("5,000,000"), "message_id": 2}, st, MockTG())
+        check("manual total parsed", st.last_invoice()["total"] == 5000000)
+
+        # منو
+        sent.clear()
+        talkmod.handle({"chat": {"id": 111}, "from": {"first_name": "م"},
+                        "text": "/start", "message_id": 3}, st, MockTG())
+        check("manager greeting", any("منشی دیجیتال" in t for (_c, t) in sent if isinstance(t, str)))
+
+        # پیام مشتری -> مدیر
+        sent.clear()
+        talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                        "text": "سلام، فاکتورم کی آماده؟", "message_id": 4}, st, MockTG())
+        check("customer relayed", any(c in (999, "999") and "علی" in t for (c, t) in sent if isinstance(t, str)))
+        check("customer acked", any(c == 555 and "پیامت رفت" in t for (c, t) in sent if isinstance(t, str)))
+
+        # یادآور -> موعد -> ارسال
+        sent.clear()
+        talkmod.handle({"chat": {"id": 111}, "from": {"first_name": "م"},
+                        "text": "/remind علی 1 پرداخت قبض را یادت نرود", "message_id": 5}, st, MockTG())
+        talkmod.poll_reminders(st, MockTG())
+        check("reminder delivered", any(c == 111 and "قبض" in t for (c, t) in sent if isinstance(t, str)))
+
+        # متن ناشناخته -> fallback (هرگز خالی)
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "xxxx", "message_id": 6}, st, MockTG())
+        check("unknown fallback", any("متوجه نشدم" in t for (_c, t) in sent if isinstance(t, str)))
+
+        # exception داخلی -> crash نمی‌کند
+        def boom(*a, **k):
+            raise RuntimeError("test-boom")
+        real_h = talkmod._handle_inner
+        talkmod._handle_inner = boom
+        talkmod.handle({"chat": {"id": 111}, "text": "y", "message_id": 7}, st, MockTG())
+        talkmod._handle_inner = real_h
+        check("no crash on error", any("ایراد گذرا" in t for (_c, t) in sent if isinstance(t, str)))
+
+    print("\nSELFTEST OK: %d/%d" % (ok, ok))
+    return 0
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+        return selftest()
+
+    token = os.environ.get("BOT_TOKEN")
+    if not token:
+        print("BOT_TOKEN لازم است (از @BotFather بگیرید). README.md را ببینید.")
+        return 1
+
+    import tg as tgmod
+    b = tgmod.TGBot(token)
+    me = b.get_me()
+    if not me.get("ok"):
+        print("خطا در اتصال به Telegram:", me.get("description"))
+        return 1
+    db = os.environ.get("SAYA_DB",
+                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "saya.db"))
+    st = storemod.Store(db)
+    st.log("boot", "bot online @" + str(me.get("result", {}).get("username")))
+    print("🌙 سایا-جادو آنلاین: @%s" % me["result"].get("username"))
+    print("   OCR:", (os.environ.get("OCR_CLOUD_URL") and "cloud")
+          or (os.path.exists("/usr/bin/tesseract") and "tesseract") or "none (manual fallback)")
+
+    stop = {"run": True}
+
+    def _sig(_s, _f):
+        stop["run"] = False
+
+    signal.signal(signal.SIGTERM, _sig)
+    signal.signal(signal.SIGINT, _sig)
+
+    def reminder_loop():
+        while stop["run"]:
+            try:
+                talk.poll_reminders(st, b)
+            except Exception as e:
+                st.log("reminder-loop", repr(e)[:200])
+            time.sleep(30)
+
+    threading.Thread(target=reminder_loop, daemon=True).start()
+
+    offset = None
+    while stop["run"]:
+        r = b.get_updates(offset=offset, timeout=30)
+        if not r.get("ok") and "retry" in r.get("description", ""):
+            continue
+        for up in r.get("result", []):
+            offset = up["update_id"] + 1
+            msg = up.get("message")
+            if msg:
+                talk.handle(msg, st, b)
+    print("خاموش شدم. 🌙")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
