@@ -60,6 +60,14 @@ FALLBACK = (
     "• «مبلغ: عدد» برای ثبت دستی\n"
     "• /menu برای فهرست")
 
+CREDIT_OK = ("✅ نسیه ثبت شد\nمشتری: {name}\nمبلغ: {amount}\nسررسید: {due}")
+CREDIT_CAP = ("⚠️ این مبلغ سقف اعتبار ({cap}) را می‌شکند.\n"
+              "به‌عنوان مالک با این فرمان تأیید کن:\n"
+              "/approve {name} {amount} [{due}]")
+CREDIT_BAL = "💳 مانده‌ی نسیه‌ی {name}: {balance}"
+CREDIT_PAID = ("✅ پرداخت ثبت شد\n{amount} از نسیه‌ی {name} کسر شد\nمانده: {rest}")
+MORNING_HEAD = "☀️ گزارش صبح ({today})\n\n"
+
 STATS = ("📊 ثبت‌های انبار: {n}\n"
          "آخرین فاکتور: شماره {no} — جمع {total}")
 
@@ -272,6 +280,37 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
                              "📥 ثبت دستی از مشتری (%s): %s" % (name or chat_id, fa_num(total)), store)
         return
 
+    if t.startswith("/credit") or t.startswith("/approve"):
+        if t.startswith("/approve") and not is_manager:
+            tg.safe_send(chat_id, FALLBACK, store)
+            return
+        _cmd_credit(t, store, tg, chat_id, approved=t.startswith("/approve"))
+        return
+
+    if t.startswith("/balance"):
+        parts = t.split(None, 1)
+        if len(parts) < 2:
+            tg.safe_send(chat_id, "فرمت: /balance <مشتری>", store)
+            return
+        tg.safe_send(chat_id, CREDIT_BAL.format(name=parts[1], balance=fa_num(store.credit_balance(parts[1]))), store)
+        return
+
+    if t.startswith("/pay"):
+        parts = t.split(None, 2)
+        if len(parts) < 3:
+            tg.safe_send(chat_id, "فرمت: /pay <مشتری> <مبلغ>", store)
+            return
+        amt = to_int(parts[2])
+        if not amt or amt <= 0:
+            tg.safe_send(chat_id, "مبلغ درست نیست.", store)
+            return
+        done = store.pay_credit(parts[1], amt)
+        store.log("credit-pay", "%s %s" % (parts[1], done))
+        tg.safe_send(chat_id, CREDIT_PAID.format(
+            name=parts[1], amount=fa_num(done),
+            rest=fa_num(store.credit_balance(parts[1]))), store)
+        return
+
     # پیام عادی مشتری -> مدیر
     if not is_manager and _manager_id():
         store.upsert_customer(chat_id, name)
@@ -314,6 +353,92 @@ def _cmd_remind(t, store, tg, chat_id, is_manager):
     tg.safe_send(chat_id, REMINDER_OK.format(name=cust, when=when_label, text=rtext[:200]), store)
 
 
+# ── نسیه / نردبان اعتبار (K-lite کامل) ─────────────────
+def _cmd_credit(t, store, tg, chat_id, approved):
+    parts = t.split(None, 3)
+    if len(parts) < 3:
+        tg.safe_send(chat_id, "فرمت: /credit <مشتری> <مبلغ> [YYYY-MM-DD]", store)
+        return
+    cust = parts[1]
+    amt = to_int(parts[2])
+    due = None
+    if len(parts) == 4 and re.match(r"^\d{4}-\d{2}-\d{2}$", parts[3]):
+        try:
+            due = datetime.datetime.strptime(parts[3], "%Y-%m-%d").replace(hour=23).timestamp()
+        except ValueError:
+            due = None
+    if due is None:
+        due = time.time() + 30 * 86400
+    if not amt or amt <= 0:
+        tg.safe_send(chat_id, "مبلغ درست نیست.", store)
+        return
+    if not approved and store.credit_balance(cust) + amt > store.credit_cap():
+        store.log("credit-cap", "%s %s > %s" % (cust, amt, store.credit_cap()))
+        tg.safe_send(chat_id, CREDIT_CAP.format(
+            cap=fa_num(store.credit_cap()), name=cust,
+            amount=amt, due=parts[3] if len(parts) == 4 else ""), store)
+        return
+    rid = store.add_credit(cust, chat_id, amt, due, approved=approved)
+    store.log("credit", "id=%s %s %s approved=%s" % (rid, cust, amt, approved))
+    tg.safe_send(chat_id, CREDIT_OK.format(
+        name=cust, amount=fa_num(amt),
+        due=jalali(datetime.date.fromtimestamp(due))), store)
+
+
+# ── گزارش صبح (K-lite) ─────────────────────────────────
+def _tz_hours():
+    try:
+        return float(os.environ.get("TZ_HOURS", "3.5"))
+    except ValueError:
+        return 3.5
+
+
+def _local_day_hour(now=None):
+    now = now or time.time()
+    dt = datetime.datetime.fromtimestamp(now + _tz_hours() * 3600,
+                                         tz=datetime.timezone.utc)
+    return dt.date(), dt.hour
+
+
+def morning_report_text(store):
+    now = time.time()
+    today = datetime.date.today()
+    y0 = datetime.datetime(today.year, today.month, today.day).timestamp()
+    invs = store.invoices_since(y0 - 86400)
+    total = sum(i["total"] for i in invs)
+    due = store.due_credits(y0)
+    ov = store.overdue_credits(y0)
+    body = MORNING_HEAD.format(today=jalali(today))
+    body += "فاکتور (24 ساعت اخیر): %s — جمع %s\n" % (
+        fa_num(len(invs), sep=False), fa_num(total))
+    if due:
+        body += "نسیه‌ی سررسید امروز: %s\n" % fa_num(len(due), sep=False)
+        for c in due:
+            body += "• %s: %s\n" % (c["customer"], fa_num(c["amount"] - c["paid"]))
+    else:
+        body += "نسیه‌ی سررسید امروز: نیست\n"
+    if ov:
+        body += "نسیه‌ی عقب‌افتاده: %s\n" % fa_num(len(ov), sep=False)
+        for c in ov:
+            body += "• %s: %s (سررسید %s)\n" % (
+                c["customer"], fa_num(c["amount"] - c["paid"]),
+                jalali(datetime.date.fromtimestamp(c["due"])))
+    else:
+        body += "نسیه‌ی عقب‌افتاده: نیست \U0001F389"
+    return body
+
+
+def _maybe_morning_report(store, tg):
+    d, h = _local_day_hour()
+    if h != 9 or not _manager_id():
+        return
+    key = "last_report_%d%02d%02d" % (d.year, d.month, d.day)
+    if store.get_setting(key):
+        return
+    store.set_setting(key, "1")
+    tg.safe_send(_manager_id(), morning_report_text(store), store, "morning")
+
+
 # ── حلقه‌ی یادآورها (از bot.py صدا می‌شود) ──────────────
 def poll_reminders(store, tg):
     for r in store.due_reminders():
@@ -324,3 +449,4 @@ def poll_reminders(store, tg):
             tg.safe_send(_manager_id(),
                          REMINDER_TO_MANAGER.format(name=r["customer"], when=jalali(datetime.date.today())),
                          store, "reminder-log")
+    _maybe_morning_report(store, tg)
