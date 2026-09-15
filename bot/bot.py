@@ -144,6 +144,54 @@ def selftest():
                         "text": "xxxx", "message_id": 6}, st, MockTG())
         check("unknown fallback", any("متوجه نشدم" in t for (_c, t) in sent if isinstance(t, str)))
 
+        print("— credit / نردبان اعتبار —")
+        st.set_setting("credit_cap", "1000000")
+        # ثبت عادی
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit علی 600000", "message_id": 8}, st, MockTG())
+        check("credit added", st.credit_balance("علی") == 600000)
+        # شکستن سقف -> تأیید لازم
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit علی 500000", "message_id": 9}, st, MockTG())
+        check("cap blocks", st.credit_balance("علی") == 600000)
+        check("cap asks approval", any("/approve" in x for (_c, x) in sent if isinstance(x, str)))
+        # تأیید مالک
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/approve علی 500000", "message_id": 10}, st, MockTG())
+        check("approved", st.credit_balance("علی") == 1100000)
+        # پرداخت
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/pay علی 300000", "message_id": 11}, st, MockTG())
+        check("paid", st.credit_balance("علی") == 800000)
+        # سررسید و عقب‌افتاده
+        now = time.time()
+        st.add_credit("رضا", 666, 200000, now + 3600)          # امروز سررسید
+        st.add_credit("حسین", 777, 400000, now - 86400)         # دیر شده
+        due = st.due_credits(now - 3600, now + 86400)
+        check("due credit", any(c["customer"] == "رضا" for c in due))
+        check("overdue credit", [c["customer"] for c in st.overdue_credits(now)] == ["حسین"])
+        # گزارش صبح
+        sent.clear()
+        os.environ["TZ_HOURS"] = "0"
+        fake_now = now
+        real_tdh = talkmod._local_day_hour
+        talkmod._local_day_hour = lambda _now=None: (datetime.date.fromtimestamp(fake_now), 9)
+        talkmod._maybe_morning_report(st, MockTG())
+        talkmod._local_day_hour = real_tdh
+        rep = [x for (_c, x) in sent if isinstance(x, str) and "گزارش صبح" in x]
+        check("morning sent to manager", any(c == "999" for (c, _x) in sent if "گزارش صبح" in _x))
+        check("morning has total", bool(rep) and _fa("73,265,000") in rep[0])
+        # بار دوم همان روز تکرار نمی‌شود
+        n_before = len(sent)
+        talkmod._local_day_hour = lambda _now=None: (datetime.date.fromtimestamp(fake_now), 9)
+        talkmod._maybe_morning_report(st, MockTG())
+        talkmod._local_day_hour = real_tdh
+        check("morning once/day", len(sent) == n_before)
+
         # exception داخلی -> crash نمی‌کند
         def boom(*a, **k):
             raise RuntimeError("test-boom")
