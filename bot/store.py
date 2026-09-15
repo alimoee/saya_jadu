@@ -13,9 +13,13 @@ CREATE TABLE IF NOT EXISTS invoices(
 CREATE TABLE IF NOT EXISTS reminders(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   customer TEXT, chat_id INTEGER, text TEXT,
-  remind_at INTEGER, done INTEGER DEFAULT 0, created_at INTEGER);
+  remind_at INTEGER, done INTEGER DEFAULT 0, attempts INTEGER DEFAULT 0,
+  created_at INTEGER);
 CREATE TABLE IF NOT EXISTS customers(
   chat_id INTEGER PRIMARY KEY, name TEXT, phone TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS pending(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id INTEGER, kind TEXT, payload TEXT, created_at INTEGER, expires INTEGER);
 CREATE TABLE IF NOT EXISTS credits(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   customer TEXT, chat_id INTEGER, amount INTEGER, paid INTEGER DEFAULT 0,
@@ -88,6 +92,13 @@ class Store:
     def mark_reminder(self, rid):
         with self._conn() as c:
             c.execute("UPDATE reminders SET done=1 WHERE id=?", (rid,))
+
+    def bump_reminder(self, rid):
+        """یک تلاش ناموفق ثبت می‌کند؛ تعداد تلاش‌ها برمی‌گردد."""
+        with self._conn() as c:
+            c.execute("UPDATE reminders SET attempts=attempts+1 WHERE id=?", (rid,))
+            r = c.execute("SELECT attempts FROM reminders WHERE id=?", (rid,)).fetchone()
+            return r["attempts"] if r else 0
 
     # ── customers / مشتریان ──────────────────────────
     def upsert_customer(self, chat_id, name="", phone=""):
@@ -185,6 +196,31 @@ class Store:
                 d["items"] = json.loads(d.get("items") or "[]")
                 out.append(d)
             return out
+
+    # ── pending / تأیید مالک (اصل ۲ سرلوحه) ───────────
+    def add_pending(self, chat_id, kind, payload, ttl=600):
+        with self._conn() as c:
+            now = int(time.time())
+            c.execute("DELETE FROM pending WHERE chat_id=? OR expires<=?", (chat_id, now))
+            cur = c.execute(
+                "INSERT INTO pending(chat_id,kind,payload,created_at,expires)"
+                " VALUES(?,?,?,?,?)",
+                (chat_id, kind, json.dumps(payload, ensure_ascii=False), now, now + ttl))
+            return cur.lastrowid
+
+    def pop_pending(self, chat_id):
+        with self._conn() as c:
+            now = int(time.time())
+            c.execute("DELETE FROM pending WHERE expires<=?", (now,))
+            r = c.execute(
+                "SELECT * FROM pending WHERE chat_id=? ORDER BY id DESC LIMIT 1",
+                (chat_id,)).fetchone()
+            if r is None:
+                return None
+            d = dict(r)
+            c.execute("DELETE FROM pending WHERE id=?", (r["id"],))
+            d["payload"] = json.loads(d.get("payload") or "{}")
+            return d
 
     # ── log / رویدادها (برای «مشکلی احدا نکند») ───────
     def log(self, kind, detail):
