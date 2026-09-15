@@ -339,6 +339,43 @@ def selftest():
         durs = st.due_reminders(time.time() + 90 * 86400)
         check("jalali remind stored", any(r["customer"] == "علی" and "قبض" in r["text"] for r in durs))
 
+        # مسیر صوت (ماژول A): STT -> فرمان / رله
+        import stt as sttmod
+        real_stt = sttmod.transcribe
+        class VoiceTG(MockTG):
+            def __init__(self):
+                self.voices = []
+            def send_voice(self, cid, blob):
+                self.voices.append(cid)
+                return {"ok": True}
+        sent.clear()
+        sttmod.transcribe = lambda b: "مبلغ: " + _fa("5,000,000")
+        vtg = VoiceTG()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "voice": {"file_id": "V1"}, "message_id": 70}, st, vtg)
+        check("voice manager cmd executed", st.last_invoice()["total"] == 5000000)
+        sent.clear()
+        sttmod.transcribe = lambda b: "سلام، قبض برمی‌دارم"
+        vtg2 = VoiceTG()
+        talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                        "voice": {"file_id": "V2"}, "message_id": 71}, st, vtg2)
+        check("voice customer relayed", any(c == "999" for (c, _x) in sent if isinstance(_x, str)))
+        sttmod.transcribe = lambda b: None
+        sent.clear()
+        vtg3 = VoiceTG()
+        talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                        "voice": {"file_id": "V3"}, "message_id": 72}, st, vtg3)
+        check("stt-down: customer voice relayed", "999" in vtg3.voices)
+        check("stt-down: customer graceful",
+              any(isinstance(x, str) and "صاحب مغازه فرستادم" in x for (_c, x) in sent))
+        sent.clear()
+        vtg4 = VoiceTG()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "voice": {"file_id": "V4"}, "message_id": 73}, st, vtg4)
+        check("stt-down: manager graceful no self-relay",
+              len(vtg4.voices) == 0 and any(isinstance(x, str) and "حالت آزمایشی" in x for (_c, x) in sent))
+        sttmod.transcribe = real_stt
+
         # exception داخلی -> crash نمی‌کند
         def boom(*a, **k):
             raise RuntimeError("test-boom")
