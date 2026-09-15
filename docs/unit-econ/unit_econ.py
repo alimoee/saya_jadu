@@ -166,6 +166,117 @@ def cashflow(months=18, shops_per_month=120, arpu=750_000,
     return net, be, burn
 
 
+
+# ── استک هزینه‌ی واقع‌بینانه (v2.1) ────────────────────
+WAGE_H = 150_000                # تومان/ساعت نیروی مؤثر (ASSUMPTION)
+ONBOARD_HOURS = 2.0             # آنبردینگ تلفنی برای دو نفر (قول سایت)
+ONBOARD_COST = int(ONBOARD_HOURS * WAGE_H)   # یک‌باره/مغازه
+
+HYBRID_LLM_SHARE = 0.20         # مغز هیبرید: ۲۰٪ گفتگوها به LLM (بقیه الگویی)
+
+VPS_MONTHLY = 8_000_000         # VPS + درگاه + دامنه + متفرقه (ASSUMPTION)
+DUNNING_LOSS = 0.05             # از دست‌رفتن تمدید (بی‌پرداختی/فراموشی)
+
+TRIAL_DAYS = 14
+TRIALS_PER_PAID = 1.0 / 0.35    # قیف: تریال→پرداخت ۳۵٪
+TRIAL_COST_PER = 25_000         # هزینه‌ی LLM/SMS یک تریال ۱۴ روزه (ASSUMPTION)
+
+# باتری (اعتبار مصرفی) — مصرف خرد ماهانه هر مغازه (ASSUMPTION)
+BATTERY = {
+    "maghaze":      dict(extra_invoices=150, extra_llm_chats=100),
+    "maghaze_plus": dict(extra_invoices=400, extra_llm_chats=300),
+    "daftar":       dict(extra_invoices=300, extra_llm_chats=150),
+}
+BATTERY_PRICE_PER_INVOICE = 500      # تومان (سایت، پلن دفتر)
+BATTERY_PRICE_PER_LLM_CHAT = 1_000   # تومان — پیشنهاد ما (≈۵× هزینه‌ی mini) (ASSUMPTION)
+
+def battery_monthly(plan, age, fx=FX):
+    """(درآمد، هزینه) باتری ماهِ age هر مغازه. مصرف ۳ ماه اول ramp-up دارد."""
+    b = BATTERY[plan]
+    ramp = 0.5 if age == 1 else (0.75 if age == 2 else 1.0)
+    rev = (b["extra_invoices"] * BATTERY_PRICE_PER_INVOICE +
+           b["extra_llm_chats"] * BATTERY_PRICE_PER_LLM_CHAT) * ramp
+    cost = b["extra_llm_chats"] * llm_cost_per_chat("mini", fx) * ramp
+    return rev, cost
+
+def hybrid_llm_per_chat(fx=FX):
+    """مغز هیبرید: ۸۰٪ الگویی (≈۰) + ۲۰٪ LLM اقتصادی."""
+    return HYBRID_LLM_SHARE * llm_cost_per_chat("mini", fx)
+
+def team_breakdown():
+    """تفکیک هزینه‌ی ثابت ۹۵۰M (ASSUMPTION — تهران ۱۴۰۵)."""
+    return [
+        ("مالک/مدیر (هزینه‌ی فرصت)", 250_000_000),
+        ("۲ توسعه‌دهنده‌ی تمام‌وقت", 360_000_000),
+        ("پشتیبانی/آنبردینگ (پاره)", 150_000_000),
+        ("VPS + زیرساخت + درگاه", 40_000_000),
+        ("بازاریابی (بودجه‌ی کم)", 100_000_000),
+        ("متفرقه/پراکندگی", 50_000_000),
+    ]
+
+def cashflow_v2(months=18, target_slope=120, onboarding_capacity=30,
+                cycle="month", fixed=FIXED_MINIMAL,
+                churn2=0.40, churn_later=0.10, fx_drift=0.0,
+                include_battery=True, mix=None):
+    """مدل واقع‌بینانه (v2.1):
+    - رشد با ramp ۶ ماهه و سقف آنبردینگ (هر مغازه ~۲ ساعت آنبردینگ تلفنی)
+    - تریال‌های لازم برای هر مشتری جدید + هزینه‌یشان
+    - چرخش cohort (ماه دوم ۴۰٪، بعدش ۱۰٪)
+    - اشتراک: month = ماهانه / quarter = پرداخت پله‌ای (ماه ۱،۴،۷ هر cohort)
+    - دنینگ ۵٪ · باتری با ramp-up مصرف · تورم FX هر ۶ ماه (اختیاری)
+    خروجی: (جریان خالص ماهانه، ماه سربه‌سر، عمیق‌ترین سوخت، جدید/ماه)"""
+    mix = mix or MIX
+    arpu_mix = sum(w * PLANS[k]["price"] * 30.0 / CYCLES[cycle]["days"] for k, w in mix.items())
+    price_mix = sum(w * PLANS[k]["price"] for k, w in mix.items())
+    var_unit = {k: (PLANS[k]["chats"] * (HYBRID_LLM_SHARE * llm_cost_per_chat("mini")) +
+                    PLANS[k]["sms"] * SMS_COST) for k in mix}
+    var_mix = sum(w * var_unit[k] for k, w in mix.items())
+    bat_rev_mix_age = {}
+    for a in range(1, months + 1):
+        bat_rev_mix_age[a] = sum(w * battery_monthly(k, a)[0] for k, w in mix.items())
+    bat_cost_mix = {a: sum(w * battery_monthly(k, a)[1] for k, w in mix.items())
+                    for a in range(1, months + 1)}
+    net, cum, burn, be, new_series = [], 0.0, 0.0, None, []
+    cohorts = []
+    for m in range(1, months + 1):
+        fx_m = FX * (1.0 + fx_drift) ** (m / 6.0)
+        new_m = min(int(round(target_slope * min(1.0, m / 6.0))), onboarding_capacity)
+        new_series.append(new_m)
+        cohorts.append(new_m)
+        active = []   # (count, age)
+        for idx, cnt in enumerate(cohorts):
+            age = m - idx
+            if cnt:
+                surv = 1.0 if age == 1 else _retention(age, churn2, churn_later)
+                active.append((cnt * surv, age))
+        # درآمد اشتراک
+        if cycle == "month":
+            sub_in = sum(c * arpu_mix for c, a in active) * (1 - DUNNING_LOSS)
+        else:
+            sub_in = 0.0
+            for c, a in active:
+                if a % 3 == 1:  # ماه پرداخت: ۱،۴،۷،...
+                    sub_in += c * price_mix
+            sub_in *= (1 - DUNNING_LOSS)
+        # باتری
+        bat_in = bat_cost = 0.0
+        if include_battery:
+            for c, a in active:
+                bat_in += c * bat_rev_mix_age[min(a, months)]
+                bat_cost += c * bat_cost_mix[min(a, months)]
+        # هزینه‌ها
+        var_out = sum(c * var_mix for c, a in active)
+        # تورم FX فقط روی بخش دلاری هزینه (LLM) اثر دارد — تقریب:
+        var_out *= (1 + (fx_m / FX - 1.0) * 0.5)
+        out = (fixed + new_m * (ONBOARD_COST + TRIALS_PER_PAID * TRIAL_COST_PER) + var_out)
+        net_m = (sub_in + bat_in) - (out + bat_cost)
+        net.append(net_m)
+        cum += net_m
+        burn = min(burn, cum)
+        if be is None and net_m > 0:
+            be = m
+    return net, be, burn, new_series
+
 # ── خروجی / تست ───────────────────────────────────────
 def report():
     today = datetime.date(2026, 9, 15)
@@ -208,6 +319,38 @@ def report():
                 label, slope, ("ماه %d" % be) if be else "هرگز در ۱۸ ماه", format(int(-burn), ",")))
     print("  (بدون چرخش — مدل v1) base: " +
           "ماه %d" % cashflow(shops_per_month=120, arpu=a_m, no_churn=True)[1])
+    print("\n— مدل واقع‌بینانه v2.1 (ramp + سقف آنبردینگ + تریال + دنینگ + باتری) —")
+    for cycle in ("quarter", "month"):
+        for cap in (30, 120):
+            _n, be, burn, _ns = cashflow_v2(target_slope=120, onboarding_capacity=cap, cycle=cycle)
+            print("  %-8s سقف آنبردینگ %-4d → سربه‌سر: %s | سوخت: %s ت" % (
+                cycle, cap, ("ماه %d" % be) if be else "هرگز در ۱۸ ماه", format(int(-burn), ",")))
+    _n, be, burn, ns = cashflow_v2(target_slope=120, onboarding_capacity=120, cycle="month", fx_drift=0.25)
+    print("  month + تورم FX ۲۵٪/ماه → سربه‌سر: %s" % (("ماه %d" % be) if be else "هرگز"))
+    print("\n— تفکیک هزینه‌ی ثابت (ASSUMPTION) —")
+    tot = 0
+    for name, v in team_breakdown():
+        tot += v
+        print("  %-34s %s ت" % (name, format(v, ",")))
+    print("  %-34s %s ت" % ("جمع", format(tot, ",")))
+    print("\n— باتری (درآمد/هزینه‌ی ماهانه خرد، پیک مصرف) —")
+    for k in PLANS:
+        rev, cost = battery_monthly(k, 3)
+        print("  %-14s درآمد %s | هزینه %s | حاشیه %s%%" % (
+            PLANS[k]["label"], format(int(rev), ","), format(int(cost), ","),
+            int(100 * (rev - cost) / rev) if rev else 0))
+    print("\n— سناریوهای عملیاتی (ماهانه) —")
+    for fixed, slope, cap, tag in (
+        (FIXED_MINIMAL, 120, 120, "تیم کامل (۹۵۰M) + رشد ۱۲/ماه"),
+        (FIXED_MINIMAL, 110, 110, "حداقل رشد برای سربه‌سر ۱۸ماهه (۱۱۰/ماه)"),
+        (450_000_000, 80, 80, "تیم لاغر (۴۵۰M) + رشد ۸۰/ماه"),
+        (450_000_000, 60, 60, "تیم لاغر (۴۵M) + رشد ۶۰/ماه"),
+        (FIXED_MINIMAL, 30, 30, "تنها مالک (سقف ۳۰/ماه) — عدم امکان"),
+    ):
+        _n, be, burn, _ns = cashflow_v2(target_slope=slope, onboarding_capacity=cap,
+                                        cycle="month", fixed=fixed)
+        print("  %-44s → %s | سوخت %s" % (
+            tag, ("ماه %d" % be) if be else "هرگز", format(int(-burn), ",")))
 
 
 def selftest():
@@ -258,6 +401,32 @@ def selftest():
     assert cashflow(shops_per_month=40, arpu=a_m)[1] is None
     # منطقی‌سازی: افزایش fixed → سربه‌سر بیشتر
     assert breakeven_shops(fixed=FIXED_WITH_GROWTH, model="rule") > b_rule
+    # v2.1: باتری حاشیه‌دار
+    for k in PLANS:
+        rev, cost = battery_monthly(k, 3)
+        assert rev > cost > 0, k
+    # هیبرید < LLM کامل
+    assert hybrid_llm_per_chat() < llm_cost_per_chat("mini")
+    # ramp: هیچ ماهی از سقف آنبردینگ بیشتر نمی‌شود
+    _n, _be, _b, ns = cashflow_v2(target_slope=120, onboarding_capacity=30)
+    assert all(x <= 30 for x in ns)
+    assert ns[-1] == 30 and ns[0] < 30
+    # سقف بالاتر → سربه‌سر زودتر
+    _n, be120, _b, _ns = cashflow_v2(target_slope=120, onboarding_capacity=120, cycle="month")
+    assert be120 is not None
+    _n, be30, _b, _ns = cashflow_v2(target_slope=120, onboarding_capacity=30, cycle="month")
+    if be30 is not None:
+        assert be120 < be30
+    # quarter: ماه‌های ۲ و ۳ جریان خالص بدتر (پرداخت پله‌ای)
+    nq, _beq, _bq, _nq = cashflow_v2(target_slope=60, onboarding_capacity=60, cycle="quarter")
+    nm, _bem, _bm, _nm = cashflow_v2(target_slope=60, onboarding_capacity=60, cycle="month")
+    assert nq[1] < nm[1]
+    # تورم FX → سربه‌سر بیشتر
+    be_fresh = cashflow_v2(target_slope=120, onboarding_capacity=120, cycle="month")[1]
+    be_drift = cashflow_v2(target_slope=120, onboarding_capacity=120, cycle="month", fx_drift=0.5)[1]
+    assert be_drift is None or be_drift >= (be_fresh or 1)
+    # team_breakdown جمع می‌شود
+    assert abs(sum(v for _n, v in team_breakdown()) - FIXED_MINIMAL) < 1
     print("UNIT-ECON SELFTEST OK")
 
 
