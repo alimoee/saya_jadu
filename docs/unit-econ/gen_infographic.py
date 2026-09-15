@@ -21,7 +21,7 @@ arpu_q = fnum(u.arpu_monthly(cycle="quarter"))
 arpu_m = fnum(u.arpu_monthly(cycle="month"))
 
 def margin_cell(plan, model):
-    pct = u.plan_quarter_margin_pct(plan, model)
+    pct = u.plan_month_margin_pct(plan, model)
     if pct >= 0: return fa(int(pct)) + "٪"
     return "زیان"
 
@@ -32,10 +32,11 @@ for k in ("maghaze", "maghaze_plus", "daftar"):
     bad = " class='bad'" if "زیان" in row[3:] else ""
     rows_html += "<tr%s>%s</tr>\n" % (bad, "".join("<td>%s</td>" % c for c in row))
 
+min_g = u.min_growth_for_be()
 scen = []
 for fixed, slope, cap, tag in (
     (u.FIXED_MINIMAL, 120, 120, "تیم کامل (%s میلیون) + رشد %s مغازه/ماه" % (fa(u.FIXED_MINIMAL // 1_000_000), fa(120))),
-    (u.FIXED_MINIMAL, 110, 110, "حداقل رشد سربه‌سر (%s/ماه)" % fa(110)),
+    (u.FIXED_MINIMAL, min_g, min_g, "حداقل رشد محاسبه‌شده (%s/ماه)" % fa(min_g)),
     (450_000_000, 80, 80, "تیم لاغر (%s میلیون) + رشد %s/ماه" % (fa(450), fa(80))),
     (450_000_000, 60, 60, "تیم لاغر (%s میلیون) + رشد %s/ماه" % (fa(450), fa(60))),
     (u.FIXED_MINIMAL, 30, 30, "تنها مالک — سقف آنبردینگ %s/ماه" % fa(30)),
@@ -57,6 +58,7 @@ bat_html = "".join("<tr><td>%s</td><td>%s</td><td>%s</td><td class='good'>%s٪</
 today = datetime.date.today().strftime("%Y-%m-%d")
 mp_rev, mp_cost = u.battery_monthly("maghaze_plus", 3)
 trials_per_paid = round(u.TRIALS_PER_PAID)  # 3
+min_g = u.min_growth_for_be()
 be_base, burn_base = u.cashflow_v2(target_slope=120, onboarding_capacity=120, cycle="month")[1:3]
 
 HTML = """<!DOCTYPE html>
@@ -64,7 +66,7 @@ HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>اقتصاد واحد سایا — مدل v2.1 (واقع‌بینانه)</title>
+<title>اقتصاد واحد سایا — مدل v2.1 (بنیاد: چرخه‌ی ۳۰روزه)</title>
 <style>
   :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--txt:#e6edf3;--mut:#8b949e;
         --gold:#e3b341;--green:#3fb950;--red:#f85149;--blue:#58a6ff;}
@@ -98,36 +100,34 @@ HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
-  <h1>سایا — اقتصاد واحد (مدل v2.1، واقع‌بینانه)</h1>
+  <h1>سایا — اقتصاد واحد (مدل v2.1 — بنیاد: چرخه‌ی ۳۰روزه)</h1>
   <div class="sub">مالکیت: مخزن <code>docs/unit-econ/unit_econ.py</code> · تست‌شده (--selftest) · تاریخ %s ·
   FX = %s تومان/دلار (بازار تهران، %s) · همه‌ی اعداد این صفحه خروجی مستقیم مدل‌اند — بدون تایپ دستی.</div>
 
-  <div class="card alert">
-    <h2>⚖️ تصمیم باز مالک — چرخه‌ی صورتحساب</h2>
-    سایت هم می‌گوید «%s هر فصل» و هم «%s هزار در روز». مدل v2.1:
-    <b class="bad">چرخه‌ی ۹۰روزه هرگز سربه‌سر نمی‌شود (حتی با رشد %s/ماه)</b>،
-    اما چرخه‌ی ۳۰روزه با تیم و رشد قابل‌دسترس ممکن است.
-    <b>پیشنهاد: دوره‌ی محاسباتی ۳۰روزه + اصلاح جمله‌ی سایت.</b>
+  <div class="card alert" style="border-right-color:var(--green);background:#0d1a12">
+    <h2 style="color:var(--green)">✅ تصمیم مالک (۲۵ شهریور ۱۴۰۵): چرخه‌ی صورتحساب = ۳۰ روز</h2>
+    تناقض قدیمی سایت («%s هر فصل» ↔ «%s هزار در روز») با پچ ۲۵ شهریور <b>رفع شد</b> (فصل → ماه روی ai-a/final؛ زنده با merge به main).
+    قیمت‌ها بدون تغییر: %s هزار تومان <b>هر ماه</b> = %s هزار در روز. چرخه‌ی ۹۰روزه (فصلی) در مدل به‌عنوان سناریوی <b class="bad">ردشده</b> می‌ماند (هرگز سربه‌سر، حتی با رشد %s/ماه).
     <span style="display:block;color:var(--mut);font-size:13px;margin-top:6px">
-    ARPU مؤثر ماهانه: چرخه‌ی ۹۰روزه = %s · چرخه‌ی ۳۰روزه = %s</span>
+    ARPU مؤثر ماهانه: بنیاد (ماه) = %s · ردشده (فصل) = %s</span>
   </div>
 
   <div class="strip">
-    <div class="chip"><b class="bad">۹۰ روز = هرگز</b><span>حتی با %s مغازه/ماه جدید در %s ماه — قیمت فصلی، ARPU را برای پوشش %s میلیون هزینه‌ی ثابت نمی‌رساند.</span></div>
+    <div class="chip"><b class="bad">چرخه‌ی فصلی = رد شد</b><span>حتی با %s مغازه/ماه جدید در %s ماه — قیمت فصلی، ARPU را برای پوشش %s میلیون هزینه‌ی ثابت نمی‌رساند. (تصمیم ۲۵ شهریور: ماه)</span></div>
     <div class="chip"><b class="good">۳۰ روز + تیم → ماه %s</b><span>تیم کامل (%s میلیون) + رشد %s مغازه/ماه؛ سوخت تا آنجا ≈ %s تومان.</span></div>
     <div class="chip"><b class="bad">تنها مالک = غیرممکن</b><span>آنبردینگ هر مغازه ≈ %s ساعت تلفن → سقف ≈ %s مغازه/ماه؛ با این سقف مدل هرگز سربه‌سر نمی‌شود. یک تیم کوچک آنبردینگ/فروش لازم است.</span></div>
-    <div class="chip"><b>حداقل رشد: %s مغازه/ماه</b><span>کمتر از این، تا ماه %s سربه‌سر نمی‌آید — بدون بافر. رشد %s بافر دارد (ماه %s).</span></div>
+    <div class="chip"><b>حداقل رشد: %s مغازه/ماه</b><span>محاسبه‌شده در مدل (جستجوی دوجنب). کمتر از این، تا ماه %s سربه‌سر نمی‌آید — بدون بافر. رشد %s بافر دارد (ماه %s).</span></div>
     <div class="chip"><b class="good">باتری: حاشیه %s–%s٪</b><span>باتری حالا یک خط درآمد واقعی است: مغازه+ ماهی %s درآمد، هزینه‌اش %s.</span></div>
     <div class="chip"><b>هوش هیبرید: %s تومان/گفتگو</b><span>٪%s قاعده‌ای رایگان + ٪%s LLM ارزان — میانگین ≈ %s در برابر %s برای LLM کامل. حاشیه‌ی پلن‌ها ۹۰٪+ می‌ماند.</span></div>
   </div>
 
   <div class="card">
-    <h2>حاشیه‌ی هر دوره‌ی ۹۰روزه (پیش از اضافه‌کردن باتری)</h2>
+    <h2>حاشیه‌ی هر پلن در چرخه‌ی ۳۰روزه (بنیاد — قبل از باتری)</h2>
     <table>
-      <tr><th>پلن</th><th>قیمت/فصل</th><th>هوش rule (قاعده‌ای)</th><th>هوش LLM-mini</th><th>هوش LLM-mid</th></tr>
+      <tr><th>پلن</th><th>قیمت/ماه</th><th>هوش rule (قاعده‌ای)</th><th>هوش LLM-mini</th><th>هوش LLM-mid</th></tr>
       %s
     </table>
-    <div class="sub" style="margin-top:8px">حاشیه‌ی rule ≈ ۹۸–۹۹٪ چون منشی قاعده‌ای تقریباً رایگان است (فقط VPS). مدل هیبرید (٪%s LLM) حاشیه را کمی پایین‌تر می‌آورد ولی پلن‌ها را همچنان ۹۰٪+ نگه می‌دارد.</div>
+    <div class="sub" style="margin-top:8px">در چرخه‌ی ماهانه همان قیمت، درآمدهای ماهانه ۳ برابر سناریوی فصلی می‌شوند. مغز هیبرید (٪%s LLM) هزینه را زیر mini نگه می‌دارد: حاشیه‌ی واقعی بنیاد ۹۰٪+ برای همه‌ی پلن‌ها.</div>
   </div>
 
   <div class="card">
@@ -149,12 +149,12 @@ HTML = """<!DOCTYPE html>
   </div>
 
   <div class="card">
-    <h2>باتری — خط درآمد واقعی <span class="tag">قیمت گفتگو = ASSUMPTION</span></h2>
+    <h2>باتری — خط درآمد واقعی <span class="tag">تأیید مالک ۲۵ شهریور</span></h2>
     <table>
       <tr><th>پلن</th><th>درآمد ماهانه خرد (پیک)</th><th>هزینه ماهانه خرد</th><th>حاشیه</th></tr>
       %s
     </table>
-    <div class="sub" style="margin-top:8px">فرض: %s تومان/گفتگوی LLM اضافی (≈%s× هزینه‌ی mini) و فاکتور اضافی %s تومان (از سایت). قیمت گفتگو هنوز در سایت نیست — با تأیید مالک رسمی می‌شود.</div>
+    <div class="sub" style="margin-top:8px">قیمت‌ها روی سایت (هر سه کارت) نمایش داده می‌شوند: گفتگوی هوشمند اضافی %s تومان (≈%s× هزینه‌ی mini) + فاکتور اضافی %s تومان (پلن دفتر).</div>
   </div>
 
   <div class="card">
@@ -162,20 +162,20 @@ HTML = """<!DOCTYPE html>
     <ul>
       <li>FX %s تومان (بازار تهران، %s) · markup LLM ٪%s</li>
       <li>قیمت پلن‌ها، فاکتور اضافی، گفتگوی رایگان: <b>سایت</b> · صوت: <b>رایگان</b> (edge-tts + Vosk)</li>
+      <li>چرخه‌ی محاسباتی ۳۰ روز: <b>تصمیم مالک ۲۵ شهریور</b> (سایت اصلاح شد) · قیمت گفتگوی باتری %s تومان: <b>تأیید مالک</b> (در سایت)</li>
       <li>هوش هیبرید: ٪%s LLM-mini + ٪%s قاعده‌ای <span class="tag">ASSUMPTION</span></li>
-      <li>آنبردینگ: %s ساعت × %s تومان/ساعت = %s تومان/مغازه (یک‌بار) <span class="tag">ASSUMPTION — سایت «آنبردینگ تلفنی» قول داده</span></li>
-      <li>تریال: %s روز · %s تریال/مشتری جدید · %s تومان/تریال <span class="tag">ASSUMPTION</span></li>
+      <li>آنبردینگ تلفنی برای ۲ نفر (مالک + همکار — از سایت): ≈%s ساعت × %s تومان/ساعت = %s تومان/مغازه (یک‌بار) <span class="tag">ASSUMPTION</span></li>
+      <li>تریال: %s روز (<b>سایت</b>) · %s تریال/مشتری جدید · %s تومان/تریال <span class="tag">ASSUMPTION — متناسب‌شده</span></li>
       <li>دنینگ ٪%s · چرخش ٪%s ماه دوم + ٪%s/ماه <span class="tag">ASSUMPTION — چالش AI-B</span></li>
-      <li>قیمت گفتگوی باتری %s تومان <span class="tag">ASSUMPTION — در سایت نیست</span></li>
-    </ul>
+      </ul>
   </div>
 
   <div class="card">
-    <h2>بعد از تأیید تصمیم</h2>
+    <h2>اقدامات (وضعیت ۲۵ شهریور)</h2>
     <ul>
-      <li>اصلاح جمله‌ی سایت (تناقض «%s هزار در روز» ↔ «%s هر فصل») + نمایش «قیمت گفتگو»</li>
-      <li>تأیید قیمت گفتگوی باتری → افزودن به سایت</li>
-      <li>برنامه‌ی رشد: حداقل %s مغازه/ماه → تیم آنبردینگ/فروش ۲–۳ نفر</li>
+      <li>✅ اصلاح کپی سایت (فصل → ماه) + قیمت گفتگو روی هر سه کارت — روی <code>ai-a/final</code> (زنده با merge به main) · تست سایت ۲۹/۲۹</li>
+      <li>✅ قیمت گفتگوی باتری %s تومان تأیید شد و در سایت است</li>
+      <li>برنامه‌ی رشد: حداقل محاسبه‌شده %s مغازه/ماه (بدون بافر) → تیم آنبردینگ/فروش ۲–۳ نفر؛ هدف بافردار %s</li>
       <li>اگر مسیر «تنها مالک» است: فقط با کاهش ثابت به ≈%s میلیون و رشد %s+/ماه ممکن می‌شود (رشد %s کفایت نمی‌کند)</li>
     </ul>
   </div>
@@ -190,12 +190,12 @@ HTML = """<!DOCTYPE html>
 
 fa_date = "".join(D[int(c)] for c in "1405") + "/" + fa(6) + "/" + fa(15)
 vals = (today, fx, fa_date,
-        fa(990000), "۳۳", fa(250),
-        arpu_q, arpu_m,
+        fa(990000), "۳۳", fa(990), "۳۳", fa(250),
+        arpu_m, arpu_q,
         fa(250), fa(18), fa(u.FIXED_MINIMAL // 1_000_000),
         fa(be_base), fa(u.FIXED_MINIMAL // 1_000_000), fa(120), fnum(-burn_base),
         fa(2), fa(30),
-        fa(110), fa(18), fa(120), fa(be_base),
+        fa(min_g), fa(18), fa(120), fa(be_base),
         bat_rows[0][3], bat_rows[2][3], fnum(mp_rev), fnum(mp_cost),
         fa(u.hybrid_llm_per_chat()),
         fa(int(100 * (1 - u.HYBRID_LLM_SHARE))), fa(int(100 * u.HYBRID_LLM_SHARE)),
@@ -211,13 +211,14 @@ vals = (today, fx, fa_date,
         bat_html,
         fnum(u.BATTERY_PRICE_PER_LLM_CHAT), "۵", fnum(500),
         fa(u.FX), fa_date, fa(80),
+        fnum(u.BATTERY_PRICE_PER_LLM_CHAT),
         fa(int(100 * u.HYBRID_LLM_SHARE)), fa(int(100 * (1 - u.HYBRID_LLM_SHARE))),
         fa(2), fnum(u.WAGE_H), fnum(u.ONBOARD_COST),
-        fa(14), fa(trials_per_paid), fnum(u.TRIAL_COST_PER),
+        fa(u.TRIAL_DAYS), fa(trials_per_paid), fnum(u.TRIAL_COST_PER),
         fa(int(100 * u.DUNNING_LOSS)), fa(40), fa(10),
         fnum(u.BATTERY_PRICE_PER_LLM_CHAT),
-        "۳۳", fa(990000),
-        fa(110), fa(450), fa(60), fa(30),
+        fa(min_g), fa(120),
+        fa(450), fa(60), fa(30),
         today)
 
 out = HTML % vals
