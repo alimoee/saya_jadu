@@ -60,6 +60,13 @@ FALLBACK = (
     "• «مبلغ: عدد» برای ثبت دستی\n"
     "• /menu برای فهرست")
 
+# اصل ۲ سرلوحه: تصمیم مالی/انباری فقط با مالک — فرمان‌های زیر هرگز از چت مشتری اجرا نمی‌شود (issue #2)
+MANAGER_ONLY_CMDS = ("/stats", "/reply", "/credit", "/approve", "/pay", "/balance", "/remind", "یادآوری")
+
+CUSTOMER_FORBIDDEN = (
+    "🔒 این فرمان مخصوص صاحب مغازه است.\n"
+    "اگر سؤال یا درخواستی داری، همین‌جا بنویس — به صاحب مغازه می‌رسانم.")
+
 CREDIT_OK = ("✅ نسیه ثبت شد\nمشتری: {name}\nمبلغ: {amount}\nسررسید: {due}")
 CREDIT_CAP = ("⚠️ این مبلغ سقف اعتبار ({cap}) را می‌شکند.\n"
               "به‌عنوان مالک با این فرمان تأیید کن:\n"
@@ -224,6 +231,12 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
 
     if t.startswith("/start") or t.startswith("/help") or t == "/menu" or t == "منو":
         tg.safe_send(chat_id, MANAGER_GREET if is_manager else CUSTOMER_GREET, store)
+        return
+
+    # دروازه‌ی دسترسی (issue #2): فرمان‌های مالی/انباری/یادآور فقط از چت مالک
+    if not is_manager and t.startswith(MANAGER_ONLY_CMDS):
+        store.log("forbidden-cmd", "chat=%s text=%s" % (chat_id, t[:80]))
+        tg.safe_send(chat_id, CUSTOMER_FORBIDDEN, store)
         return
 
     if t.startswith("/stats"):

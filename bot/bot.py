@@ -187,6 +187,24 @@ def selftest():
         talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
                         "text": "/pay علی 300000", "message_id": 11}, st, MockTG())
         check("paid", st.credit_balance("علی") == 800000)
+        # دروازه‌ی دسترسی (issue #2): فرمان‌های مالی فقط از چت مالک
+        print("— دروازه‌ی دسترسی —")
+        sent.clear()
+        talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                        "text": "/pay علی " + _fa("100,000"), "message_id": 12}, st, MockTG())
+        check("customer /pay blocked",
+              any(c == 555 and "صاحب مغازه" in t for (c, t) in sent if isinstance(t, str)))
+        check("balance unchanged", st.credit_balance("علی") == 800000)
+        for cmd in ("/credit علی 100000", "/balance علی", "/stats", "/remind علی 30 سلام"):
+            sent.clear()
+            talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                            "text": cmd, "message_id": 13}, st, MockTG())
+            check("customer blocked: " + cmd.split()[0],
+                  any(c == 555 and "صاحب مغازه" in t for (c, t) in sent if isinstance(t, str)))
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/stats", "message_id": 14}, st, MockTG())
+        check("manager /stats ok", any("ثبت‌های انبار" in t for (_c, t) in sent if isinstance(t, str)))
         # سررسید و عقب‌افتاده
         now = time.time()
         st.add_credit("رضا", 666, 200000, now + 3600)          # امروز سررسید
