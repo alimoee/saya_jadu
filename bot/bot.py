@@ -39,6 +39,13 @@ def selftest():
     check("to_int fa", to_int(_fa("68,265,000")) == 68265000)
     check("to_int ascii", to_int("68,265,000") == 68265000)
     check("jalali 2026-10-14", jalali(datetime.date(2026, 10, 14)) == _fa("22") + " " + "مهر" + " " + _fa("1405"))
+    from persian import j2g, g2j, parse_jalali
+    check("j2g 1395/1/23", j2g(1395, 1, 23) == (2016, 4, 11))
+    check("g2j 2026-03-21", g2j(2026, 3, 21) == (1405, 1, 1))
+    check("j2g 1399/12/30 leap", j2g(1399, 12, 30) == (2021, 3, 20))
+    check("parse 22/7 (1405)", parse_jalali("22/7", datetime.date(2026, 9, 15)) == datetime.date(2026, 10, 14))
+    check("parse 30/12/1399", parse_jalali("30/12/1399") == datetime.date(2021, 3, 20))
+    check("parse 30/12/1405 rejected", parse_jalali("30/12/1405") is None)
 
     print("— ocr parse —")
     sample = (
@@ -90,20 +97,32 @@ def selftest():
         os.environ["SAYA_DATA"] = os.path.join(td, "data")
         os.environ["MANAGER_CHAT_ID"] = "999"
 
-        # فاکتور با بک‌اند mock
+        # فاکتور با بک‌اند mock -> پیش‌نمایش مالک + تأیید
         import talk as talkmod
         real_ocr = talkmod.ocrmod.ocr_image
         talkmod.ocrmod.ocr_image = lambda b: sample
-        msg = {"chat": {"id": 111, "type": "private"},
+        msg = {"chat": {"id": 999, "type": "private"},
                "from": {"first_name": "مدیر"},
                "photo": [{"file_id": "F1"}],
                "message_id": 1}
         talkmod.handle(msg, st, MockTG())
         talkmod.ocrmod.ocr_image = real_ocr
 
-        check("invoice reply sent", any(_fa("68,265,000") in t for (_c, t) in sent if isinstance(t, str)))
-        check("items in reply", any("گوشت بره" in t for (_c, t) in sent if isinstance(t, str)))
-        check("stored in db", st.invoice_count() == 1)
+        check("preview sent, not auto-stored", st.invoice_count() == 0)
+        check("preview asks بله", any("بله" in x and _fa("68,265,000") in x for (_c, x) in sent if isinstance(x, str)))
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "مدیر"},
+                        "text": "بله", "message_id": 2}, st, MockTG())
+        check("confirmed stored", st.invoice_count() == 1)
+        check("confirm reply has total", any(_fa("68,265,000") in x for (_c, x) in sent if isinstance(x, str)))
+        # فاکتور دوم -> لغو
+        talkmod.ocrmod.ocr_image = lambda b: sample
+        sent.clear()
+        talkmod.handle(msg, st, MockTG())
+        talkmod.ocrmod.ocr_image = real_ocr
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "مدیر"},
+                        "text": "نه", "message_id": 3}, st, MockTG())
+        check("cancelled not stored", st.invoice_count() == 1)
 
         # بدون بک‌اند OCR -> fallback
         talkmod.ocrmod.ocr_image = lambda b: None
@@ -112,11 +131,18 @@ def selftest():
         talkmod.ocrmod.ocr_image = real_ocr
         check("ocr-missing fallback", any("مبلغ: عدد" in t for (_c, t) in sent if isinstance(t, str)))
 
-        # ثبت دستی
+        # ثبت دستی مالک
         sent.clear()
-        talkmod.handle({"chat": {"id": 111}, "from": {"first_name": "م"},
-                        "text": "مبلغ: " + _fa("5,000,000"), "message_id": 2}, st, MockTG())
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "مبلغ: " + _fa("5,000,000"), "message_id": 40}, st, MockTG())
         check("manual total parsed", st.last_invoice()["total"] == 5000000)
+        # مشتری: فقط درخواست، بدون ثبت خودکار
+        n_before = st.invoice_count()
+        sent.clear()
+        talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                        "text": "مبلغ: " + _fa("1,000,000"), "message_id": 41}, st, MockTG())
+        check("customer manual not auto-stored", st.invoice_count() == n_before)
+        check("customer manual relayed", any(c == "999" and "درخواست ثبت" in x for (c, x) in sent if isinstance(x, str)))
 
         # منو
         sent.clear()
@@ -165,7 +191,7 @@ def selftest():
         check("unknown fallback", any("متوجه نشدم" in t for (_c, t) in sent if isinstance(t, str)))
 
         print("— credit / نردبان اعتبار —")
-        st.set_setting("credit_cap", "1000000")
+        st.set_setting("credit_cap", "2000000")
         # ثبت عادی
         sent.clear()
         talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
@@ -187,6 +213,33 @@ def selftest():
         talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
                         "text": "/pay علی 300000", "message_id": 11}, st, MockTG())
         check("paid", st.credit_balance("علی") == 800000)
+        # دروازه‌ی دسترسی (issue #2، با AI-B): فرمان‌های مالی فقط از چت مالک
+        print("— دروازه‌ی دسترسی —")
+        sent.clear()
+        talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                        "text": "/pay علی " + _fa("100,000"), "message_id": 50}, st, MockTG())
+        check("customer /pay blocked",
+              any(c == 555 and "صاحب مغازه" in x for (c, x) in sent if isinstance(x, str)))
+        check("balance unchanged", st.credit_balance("علی") == 800000)
+        for cmd in ("/credit علی 100000", "/balance علی", "/stats", "/remind علی 30 سلام"):
+            sent.clear()
+            talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
+                            "text": cmd, "message_id": 51}, st, MockTG())
+            check("customer blocked: " + cmd.split()[0],
+                  any(c == 555 and "صاحب مغازه" in x for (c, x) in sent if isinstance(x, str)))
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/stats", "message_id": 52}, st, MockTG())
+        check("manager /stats ok", any("ثبت‌های انبار" in x for (_c, x) in sent if isinstance(x, str)))
+        # آستانه ۵۰٪: رضا 400k OK، سپس 800k می‌شکند
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit رضا 400000", "message_id": 12}, st, MockTG())
+        check("credit under half ok", st.credit_balance("رضا") == 400000)
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit رضا 800000", "message_id": 13}, st, MockTG())
+        check("credit over half blocked", st.credit_balance("رضا") == 400000)
         # سررسید و عقب‌افتاده
         now = time.time()
         st.add_credit("رضا", 666, 200000, now + 3600)          # امروز سررسید
@@ -211,6 +264,36 @@ def selftest():
         talkmod._maybe_morning_report(st, MockTG())
         talkmod._local_day_hour = real_tdh
         check("morning once/day", len(sent) == n_before)
+
+        # retry یادآور: ۳ تلاش ناموفق -> mark + log
+        class MockTGF(MockTG):
+            def send_message(self, chat_id, text):
+                sent.append((chat_id, text))
+                return {"ok": False}
+            def send_voice(self, cid, blob):
+                return {"ok": False}
+            def safe_send(self, cid, text, stx=None, kind="s"):
+                sent.append((cid, text))
+                return False
+        st.add_reminder("تست", 111, "رسید", time.time() - 5)
+        talkmod.poll_reminders(st, MockTGF())
+        check("retry1 still open", len(st.due_reminders()) == 1)
+        talkmod.poll_reminders(st, MockTGF())
+        talkmod.poll_reminders(st, MockTGF())
+        check("retry3 closed", len(st.due_reminders()) == 0)
+        # catch-up گزارش صبح (ساعت ۱۰، بوت از ۹ به بعد بالا آمده)
+        st3 = storemod.Store(os.path.join(td, "t3.db"))
+        sent.clear()
+        talkmod._local_day_hour = lambda _now=None: (datetime.date.today(), 10)
+        talkmod._maybe_morning_report(st3, MockTG())
+        talkmod._local_day_hour = real_tdh
+        check("morning catch-up sent", any(c == "999" for (c, _x) in sent if isinstance(_x, str) and "گزارش صبح" in _x))
+        # تاریخ شمسی در /remind
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/remind علی 22/7 قبض", "message_id": 60}, st, MockTG())
+        durs = st.due_reminders(time.time() + 90 * 86400)
+        check("jalali remind stored", any(r["customer"] == "علی" and "قبض" in r["text"] for r in durs))
 
         # exception داخلی -> crash نمی‌کند
         def boom(*a, **k):
