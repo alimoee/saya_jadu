@@ -6,8 +6,9 @@ import os
 import re
 import time
 
-from persian import fa_num, jalali, to_int
+from persian import fa_num, jalali, to_int, parse_jalali
 import ocr as ocrmod
+import stt as sttmod
 
 DATA = os.environ.get("SAYA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 
@@ -53,6 +54,10 @@ VOICE_GRACEFUL = (
     "🎙 صدایت را گرفتم، ولی املا صوتی فعلاً در حالت آزمایشی است.\n"
     "متن بفرست تا اجرا کنم — یا عکس فاکتور بفرست.")
 
+VOICE_GRACEFUL_C = (
+    "🎙 صدایت را گرفتم، ولی الان نمی‌توانم آن را به متن تبدیل کنم — برای صاحب مغازه فرستادم.\n"
+    "اگر مهم است، لطفاً همین را به‌صورت متن هم بفرست.")
+
 FALLBACK = (
     "متوجه نشدم 😅\n"
     "ساده‌ترین کارها:\n"
@@ -60,8 +65,15 @@ FALLBACK = (
     "• «مبلغ: عدد» برای ثبت دستی\n"
     "• /menu برای فهرست")
 
+# اصل ۲ سرلوحه: تصمیم مالی/انباری فقط با مالک — این فرمان‌ها هرگز از چت مشتری اجرا نمی‌شود (issue #2، با AI-B)
+MANAGER_ONLY_CMDS = ("/stats", "/reply", "/credit", "/approve", "/pay", "/balance", "/remind", "یادآوری")
+
+CUSTOMER_FORBIDDEN = (
+    "🔒 این فرمان مخصوص صاحب مغازه است.\n"
+    "اگر سؤال یا درخواستی داری، همین‌جا بنویس — به صاحب مغازه می‌رسانم.")
+
 CREDIT_OK = ("✅ نسیه ثبت شد\nمشتری: {name}\nمبلغ: {amount}\nسررسید: {due}")
-CREDIT_CAP = ("⚠️ این مبلغ سقف اعتبار ({cap}) را می‌شکند.\n"
+CREDIT_CAP = ("⚠️ مانده + این مبلغ از نیمی از سقف اعتبار ({cap}) بیشتر می‌شود.\n"
               "به‌عنوان مالک با این فرمان تأیید کن:\n"
               "/approve {name} {amount} [{due}]")
 CREDIT_BAL = "💳 مانده‌ی نسیه‌ی {name}: {balance}"
@@ -91,17 +103,19 @@ def handle(msg, store, tg):
 
 
 def _handle_inner(msg, store, tg, chat_id, name, is_manager):
-    # ۱) صوت
+    # ۱) صوت (ماژول A)
     if "voice" in msg:
-        text = _stt(_voice_bytes(msg, store, tg))
+        blob = _voice_bytes(msg, store, tg)
+        text = _stt(blob)
         if text:
             store.log("voice", "stt ok: %s" % text[:120])
-            text = text.strip()
+            _handle_text(text.strip(), store, tg, chat_id, name, is_manager)
         else:
-            tg.safe_send(chat_id, VOICE_GRACEFUL, store)
-            return
-        # ادامه با متن (فرمان)
-        _handle_text(text, store, tg, chat_id, name, is_manager)
+            # بدون STT صدای مشتری گم نمی‌شود (ماژول F): برای صاحب مغازه می‌رود
+            if not is_manager and _manager_id() and blob:
+                tg.send_voice(_manager_id(), blob)
+            tg.safe_send(chat_id, VOICE_GRACEFUL_C if not is_manager else VOICE_GRACEFUL, store)
+            store.log("voice", "stt unavailable -> " + ("relay to manager" if not is_manager else "graceful"))
         return
 
     # ۲) عکس -> فاکتور
@@ -136,25 +150,21 @@ def _voice_bytes(msg, store, tg):
 
 
 def _stt(ogg_bytes):
-    """بک‌اند STT اختیاری (STT_URL) — قرارداد: POST image=ogg -> {"text": ...}"""
-    url = os.environ.get("STT_URL")
-    if not url or not ogg_bytes:
-        return None
-    import json as _json
-    import urllib.request
-    boundary = "----sayastt"
-    body = (("--%s\r\nContent-Disposition: form-data; name=\"image\"; filename=\"v.ogg\"\r\n"
-             "Content-Type: audio/ogg\r\n\r\n" % boundary).encode() +
-            ogg_bytes + ("\r\n--%s--\r\n" % boundary).encode())
-    try:
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
-                     "Authorization": "Bearer " + os.environ.get("STT_KEY", "")})
-        with urllib.request.urlopen(req, timeout=90) as r:
-            return _json.loads(r.read().decode("utf-8")).get("text")
-    except Exception:
-        return None
+    """STT اختیاری (ماژول A) — stt.py: اول Vosk محلی (آفلاین)، بعد STT_URL؛ هرگز نمی‌شکند."""
+    return sttmod.transcribe(ogg_bytes)
+
+
+def _invoice_ok_text(no, total, items, iid):
+    body = INVOICE_OK_HEAD.format(
+        no=fa_num(to_int(str(no)) or 0) if no not in (None, "?") else "?",
+        total=fa_num(total))
+    if items:
+        for (nm, q, p) in items:
+            body += INVOICE_ITEM.format(name=nm, qty=fa_num(q, sep=False),
+                                        price=fa_num(p), line=fa_num(q * p))
+    else:
+        body += INVOICE_NO_ITEMS
+    return body + INVOICE_OK_TAIL.format(id=fa_num(iid, sep=False))
 
 
 # ── فاکتور (مسیر B) ───────────────────────────────────
@@ -195,27 +205,39 @@ def _handle_photo(msg, store, tg, chat_id, name, is_manager):
         return
 
     total = parsed["total"]
-    iid = store.add_invoice("", str(parsed["no"]) or "?", total,
-                            [list(x) for x in parsed["items"]],
-                            os.path.basename(photo_path) if photo_path else "",
-                            "ocr" if text else "manual")
-    store.log("invoice", "id=%s no=%s total=%s items=%s" % (iid, parsed["no"], total, len(parsed["items"])))
 
-    body = INVOICE_OK_HEAD.format(
-        no=fa_num(to_int(str(parsed["no"])) or 0) if parsed["no"] not in (None, "?") else "?",
-        total=fa_num(total))
-    if parsed["items"]:
-        for (nm, q, p) in parsed["items"]:
-            body += INVOICE_ITEM.format(name=nm, qty=fa_num(q, sep=False),
-                                        price=fa_num(p), line=fa_num(q * p))
+    # مشتری: هرگز ورود خودکار (اصل ۲ سرلوحه) — پیش‌نمایش برای صاحب مغازه
+    if not is_manager:
+        preview = "• شماره: %s\n• جمع: %s" % (
+            fa_num(to_int(str(parsed["no"])) or 0) if parsed["no"] not in (None, "?") else "?",
+            fa_num(total))
+        if _manager_id():
+            tg.send_photo(_manager_id(), blob,
+                          "📷 مشتری (%s) — پیش‌نمایش خواندن:\n%s" % (name or chat_id, preview))
+        tg.safe_send(chat_id, "✅ فاکتورت همراه با پیش‌نمایش خواندن برای صاحب مغازه رفت.", store)
+        store.log("invoice-customer", "total=%s" % total)
+        return
+
+    # مالک: پیش‌نمایش با اطمینان per-field -> تأیید -> انبار (issue #5)
+    items = [list(x) for x in parsed["items"]]
+    store.add_pending(chat_id, "invoice",
+                      {"no": parsed["no"], "total": total, "items": items,
+                       "photo": os.path.basename(photo_path) if photo_path else ""})
+    body = "📄 فاکتور خوانده شد:\n"
+    body += "• شماره: %s %s\n" % (
+        fa_num(to_int(str(parsed["no"])) or 0) if parsed["no"] not in (None, "?") else "؟",
+        "🟢" if parsed["no"] not in (None, "?") else "🟡 (خواندم)")
+    body += "• جمع کل: %s 🟢\n" % fa_num(total)
+    if items:
+        s = ocrmod.items_sum(items)
+        body += "• قلم‌ها: %s %s\n" % (
+            fa_num(len(items), sep=False),
+            "🟢" if s == total else "🟡 (جمع قلم‌ها با جمع کل %s اختلاف دارد)" % fa_num(abs(s - total)))
     else:
-        body += INVOICE_NO_ITEMS
-    body += INVOICE_OK_TAIL.format(id=fa_num(iid, sep=False))
+        body += "• قلم‌ها: 🟡 (جدا خواندم؛ فقط جمع ثبت می‌شود)\n"
+    body += "\nبرای ثبت در انبار «بله» بنویس، برای لغو «نه»."
     tg.safe_send(chat_id, body, store)
-
-    if not is_manager and _manager_id():
-        tg.send_photo(_manager_id(), blob,
-                      "📷 مشتری (%s) — فاکتور ثبت شد: %s" % (name or chat_id, fa_num(total)))
+    store.log("invoice-pending", "total=%s items=%s" % (total, len(items)))
 
 
 # ── متن / دستورات ────────────────────────────────────
@@ -224,6 +246,31 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
 
     if t.startswith("/start") or t.startswith("/help") or t == "/menu" or t == "منو":
         tg.safe_send(chat_id, MANAGER_GREET if is_manager else CUSTOMER_GREET, store)
+        return
+
+    # دروازه‌ی دسترسی (issue #2، با AI-B): فرمان‌های مالی/انباری/یادآور فقط از چت مالک
+    if not is_manager and t.startswith(MANAGER_ONLY_CMDS):
+        store.log("forbidden-cmd", "chat=%s text=%s" % (chat_id, t[:80]))
+        tg.safe_send(chat_id, CUSTOMER_FORBIDDEN, store)
+        return
+
+    if t in ("بله", "تأیید", "درست"):
+        p = store.pop_pending(chat_id)
+        if p and p.get("kind") == "invoice":
+            d = p["payload"]
+            iid = store.add_invoice("", str(d.get("no") or "?"), d["total"],
+                                    d.get("items", []), d.get("photo", ""), "ocr-confirmed")
+            store.log("invoice-confirmed", "id=%s total=%s" % (iid, d["total"]))
+            tg.safe_send(chat_id, _invoice_ok_text(d.get("no"), d["total"], d.get("items", []), iid), store)
+        else:
+            tg.safe_send(chat_id, FALLBACK, store)
+        return
+
+    if t in ("نه", "لغو", "انصراف"):
+        if store.pop_pending(chat_id):
+            tg.safe_send(chat_id, "لغو شد ✅ (چیزی در انبار ثبت نشد)", store)
+        else:
+            tg.safe_send(chat_id, FALLBACK, store)
         return
 
     if t.startswith("/stats"):
@@ -271,13 +318,19 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
     m = re.match(r"^مبلغ\s*[:：]?\s*([\d\u06F0-\u06F9][\d\u06F0-\u06F9\u066C,]*)$", t)
     if m:
         total = to_int(m.group(1))
-        if total:
+        if not total:
+            tg.safe_send(chat_id, "مبلغ درست نیست.", store)
+            return
+        if is_manager:
             iid = store.add_invoice("", "?", total, [], "", "manual")
             store.log("invoice-manual", "id=%s total=%s" % (iid, total))
             tg.safe_send(chat_id, MANUAL_OK.format(total=fa_num(total), id=fa_num(iid, sep=False)), store)
-            if not is_manager and _manager_id():
+        else:
+            if _manager_id():
+                store.upsert_customer(chat_id, name)
                 tg.safe_send(_manager_id(),
-                             "📥 ثبت دستی از مشتری (%s): %s" % (name or chat_id, fa_num(total)), store)
+                             "📥 مشتری (%s) درخواست ثبت دستی دارد: %s — ثبت فقط از حساب خودت ممکن است." % (name or chat_id, fa_num(total)), store)
+            tg.safe_send(chat_id, "✅ مبلغت برای صاحب مغازه رفت؛ پس از تأیید او ثبت می‌شود.", store)
         return
 
     if t.startswith("/credit") or t.startswith("/approve"):
@@ -321,6 +374,34 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
     tg.safe_send(chat_id, FALLBACK, store)
 
 
+# ── تاریخ (شمسی/میلادی — issue #5، بازبینی AI-B روی کار AI-A) ──
+_FA_TRANS = str.maketrans("".join(chr(0x06F0 + i) for i in range(10)), "0123456789")
+
+
+def _parse_when_date(s, hour):
+    """تاریخ پذیرش: شمسی ISO (۱۴۰۵-۰۷-۲۵ یا ۱۴۰۵/۷/۲۵)، میلادی ISO (2026-10-17)،
+    و فرمت‌های بازِ parse_jalali (۲۲/۷، ۲۲ مهر). ارقام فارسی هم.
+    خروجی: datetime (ساعت مشخص) یا None — تاریخ نامعتبر (مثل ۱۴۰۵-۱۳-۴۰) None می‌دهد."""
+    s = str(s).strip().translate(_FA_TRANS)
+    m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$", s)
+    if m:
+        y, a, b = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            if y < 1700:  # کاربر ایرانی: سال شمسی — اعتبارسنجی کبیسه‌آگاه از parse_jalali
+                d = parse_jalali("%d/%d/%d" % (b, a, y))
+            else:
+                d = datetime.date(y, a, b)
+        except ValueError:
+            return None
+        if d is None:
+            return None
+        return datetime.datetime(d.year, d.month, d.day, hour)
+    d = parse_jalali(s)
+    if d is not None:
+        return datetime.datetime(d.year, d.month, d.day, hour)
+    return None
+
+
 # ── یادآور (مسیر D) ───────────────────────────────────
 def _cmd_remind(t, store, tg, chat_id, is_manager):
     parts = t.split(None, 3)
@@ -331,24 +412,20 @@ def _cmd_remind(t, store, tg, chat_id, is_manager):
 
     remind_at = None
     when_label = ""
-    mins = to_int(when)
-    if mins is not None and 0 < mins < 100000:
-        remind_at = time.time() + mins * 60
-        when_label = fa_num(mins) + " دقیقه دیگر"
-    elif re.match(r"^\d{4}-\d{2}-\d{2}$", when):
-        try:
-            d = datetime.datetime.strptime(when, "%Y-%m-%d").replace(hour=9, minute=0)
-            remind_at = d.timestamp()
-            when_label = jalali(d.date()) + " ساعت ۹ صبح"
-        except ValueError:
-            pass
+    dt = _parse_when_date(when, 9)  # اول تاریخ (شمسی/میلادی)، بعد دقیقه — ترتیب مهم است: «22/7» دقیقه نیست
+    if dt is not None:
+        remind_at = dt.timestamp()
+        when_label = jalali(dt.date()) + " ساعت ۹ صبح"
+    else:
+        mins = to_int(when)
+        if mins is not None and 0 < mins < 100000:
+            remind_at = time.time() + mins * 60
+            when_label = fa_num(mins) + " دقیقه دیگر"
     if remind_at is None:
-        tg.safe_send(chat_id, "زمان را نمی‌فهمم — دقیقه (مثلاً ۳۰) یا YYYY-MM-DD بده.", store)
+        tg.safe_send(chat_id, "زمان را نمی‌فهمم — دقیقه (مثلاً ۳۰)، شمسی (۱۴۰۵-۰۷-۲۵ یا ۲۲/۷) یا میلادی (2026-10-17) بده.", store)
         return
 
-    cid = chat_id
-    cust_row = store.get_customer(chat_id)
-    rid = store.add_reminder(cust, cid, rtext, remind_at)
+    rid = store.add_reminder(cust, chat_id, rtext, remind_at)
     store.log("reminder", "id=%s cust=%s at=%s" % (rid, cust, remind_at))
     tg.safe_send(chat_id, REMINDER_OK.format(name=cust, when=when_label, text=rtext[:200]), store)
 
@@ -361,18 +438,19 @@ def _cmd_credit(t, store, tg, chat_id, approved):
         return
     cust = parts[1]
     amt = to_int(parts[2])
-    due = None
-    if len(parts) == 4 and re.match(r"^\d{4}-\d{2}-\d{2}$", parts[3]):
-        try:
-            due = datetime.datetime.strptime(parts[3], "%Y-%m-%d").replace(hour=23).timestamp()
-        except ValueError:
-            due = None
-    if due is None:
-        due = time.time() + 30 * 86400
     if not amt or amt <= 0:
         tg.safe_send(chat_id, "مبلغ درست نیست.", store)
         return
-    if not approved and store.credit_balance(cust) + amt > store.credit_cap():
+    if len(parts) == 4:  # سررسید شمسی/میلادی — تاریخ نامعتبر هرگز بی‌صدا +۳۰ روز نمی‌شود (issue #5، بازبینی AI-B)
+        dt = _parse_when_date(parts[3], 23)
+        if dt is None:
+            tg.safe_send(chat_id, "تاریخ سررسید را نمی‌فهمم — شمسی مثل ۱۴۰۵-۰۷-۲۵ یا ۲۲/۷، یا میلادی مثل 2026-10-17.", store)
+            return
+        due = dt.timestamp()
+    else:
+        due = time.time() + 30 * 86400
+    half = store.credit_cap() // 2
+    if not approved and store.credit_balance(cust) + amt > half:
         store.log("credit-cap", "%s %s > %s" % (cust, amt, store.credit_cap()))
         tg.safe_send(chat_id, CREDIT_CAP.format(
             cap=fa_num(store.credit_cap()), name=cust,
@@ -400,9 +478,7 @@ def _local_day_hour(now=None):
     return dt.date(), dt.hour
 
 
-def morning_report_text(store):
-    now = time.time()
-    today = datetime.date.today()
+def morning_report_text(store, today):
     y0 = datetime.datetime(today.year, today.month, today.day).timestamp()
     invs = store.invoices_since(y0 - 86400)
     total = sum(i["total"] for i in invs)
@@ -429,19 +505,20 @@ def morning_report_text(store):
 
 
 def _maybe_morning_report(store, tg):
+    """ساعت ۹ به بعد (به‌وقت محلی)؛ اگر در لحظه‌ی ۹ نبود (مثلاً بوت آفلاین بود) جبران می‌شود."""
     d, h = _local_day_hour()
-    if h != 9 or not _manager_id():
+    if h < 9 or not _manager_id():
         return
     key = "last_report_%d%02d%02d" % (d.year, d.month, d.day)
     if store.get_setting(key):
         return
     store.set_setting(key, "1")
-    tg.safe_send(_manager_id(), morning_report_text(store), store, "morning")
+    tg.safe_send(_manager_id(), morning_report_text(store, d), store, "morning")
 
 
 # ── حلقه‌ی یادآورها (از bot.py صدا می‌شود) ──────────────
 def _send_reminder(recipient, text, store, tg):
-    """اول صدا (اگر TTS باشد)، اگر نه متن؛ اگر صدا شکست، متن."""
+    """اول صدا (اگر TTS باشد)، اگر نه متن؛ اگر صدا شکست، متن. برگردان: موفق/ناموفق."""
     try:
         import tts
         blob = tts.synthesize("یادآوری: " + text)
@@ -449,24 +526,28 @@ def _send_reminder(recipient, text, store, tg):
         blob = None
     if blob:
         try:
-            os.makedirs(os.path.join(DATA, "tts"), exist_ok=True)
             ok = tg.send_voice(recipient, blob).get("ok", False)
-            if ok and store is not None:
-                store.log("reminder-voice", "sent")
             if ok:
-                return
+                if store is not None:
+                    store.log("reminder-voice", "sent")
+                return True
         except Exception:
             pass
-    tg.safe_send(recipient, REMINDER_TO_CUSTOMER.format(text=text), store, "reminder")
+    return tg.safe_send(recipient, REMINDER_TO_CUSTOMER.format(text=text), store, "reminder")
 
 
 def poll_reminders(store, tg):
     for r in store.due_reminders():
-        store.mark_reminder(r["id"])
-        if r.get("chat_id"):
-            _send_reminder(r["chat_id"], r["text"], store, tg)
-        if _manager_id():
-            tg.safe_send(_manager_id(),
-                         REMINDER_TO_MANAGER.format(name=r["customer"], when=jalali(datetime.date.today())),
-                         store, "reminder-log")
+        ok = _send_reminder(r["chat_id"], r["text"], store, tg) if r.get("chat_id") else False
+        if ok:
+            store.mark_reminder(r["id"])
+            if _manager_id():
+                tg.safe_send(_manager_id(),
+                             REMINDER_TO_MANAGER.format(name=r["customer"], when=jalali(datetime.date.today())),
+                             store, "reminder-log")
+        else:
+            n = store.bump_reminder(r["id"])
+            if n >= 3:
+                store.mark_reminder(r["id"])
+                store.log("reminder-failed", "id=%s بعد از %s تلاش" % (r["id"], n))
     _maybe_morning_report(store, tg)

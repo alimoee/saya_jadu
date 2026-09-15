@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>اقتصاد واحد سایا — مدل v2.1 (بنیاد: چرخه‌ی ۳۰روزه)</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--txt:#e6edf3;--mut:#8b949e;
+        --gold:#e3b341;--green:#3fb950;--red:#f85149;--blue:#58a6ff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:"Vazirmatn","IRANSans","Segoe UI",Tahoma,sans-serif;font-size:15px;line-height:1.9}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 60px}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--mut);margin-bottom:26px;font-size:13.5px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:18px 0}
+  .card h2{font-size:17px;margin:0 0 10px;color:var(--gold)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+  th{color:var(--mut);font-weight:600;text-align:right;padding:7px 10px;border-bottom:1px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid #21262d}
+  tr:last-child td{border-bottom:none}
+  .good{color:var(--green);font-weight:700}
+  .bad{color:var(--red);font-weight:700}
+  .strip{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}
+  .chip{flex:1 1 260px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .chip b{display:block;font-size:19px;margin-bottom:2px}
+  .chip span{color:var(--mut);font-size:12.5px;line-height:1.7;display:block}
+  .alert{border-right:4px solid var(--gold);background:#1a1a0d}
+  code{background:#21262d;border:1px solid var(--line);border-radius:6px;padding:2px 7px;
+       font-family:Consolas,monospace;font-size:12.5px;color:var(--blue)}
+  ul{margin:6px 0;padding-right:22px}
+  li{margin:5px 0}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 8px;
+       font-size:11.5px;color:var(--mut);margin-right:6px}
+  .foot{color:var(--mut);font-size:12px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>سایا — اقتصاد واحد (مدل v2.1 — بنیاد: چرخه‌ی ۳۰روزه)</h1>
+  <div class="sub">مالکیت: مخزن <code>docs/unit-econ/unit_econ.py</code> · تست‌شده (--selftest) · تاریخ 2026-09-15 ·
+  FX = ۲۲۸٬۰۰۰ تومان/دلار (بازار تهران، ۱۴۰۵/۶/۱۵) · همه‌ی اعداد این صفحه خروجی مستقیم مدل‌اند — بدون تایپ دستی.</div>
+
+  <div class="card alert" style="border-right-color:var(--green);background:#0d1a12">
+    <h2 style="color:var(--green)">✅ تصمیم مالک (۲۵ شهریور ۱۴۰۵): چرخه‌ی صورتحساب = ۳۰ روز</h2>
+    تناقض قدیمی سایت («۹۹۰٬۰۰۰ هر فصل» ↔ «۳۳ هزار در روز») با پچ ۲۵ شهریور <b>رفع شد</b> (فصل → ماه روی ai-a/final؛ زنده با merge به main).
+    قیمت‌ها بدون تغییر: ۹۹۰ هزار تومان <b>هر ماه</b> = ۳۳ هزار در روز. چرخه‌ی ۹۰روزه (فصلی) در مدل به‌عنوان سناریوی <b class="bad">ردشده</b> می‌ماند (هرگز سربه‌سر، حتی با رشد ۲۵۰/ماه).
+    <span style="display:block;color:var(--mut);font-size:13px;margin-top:6px">
+    ARPU مؤثر ماهانه: بنیاد (ماه) = ۱٬۵۵۹٬۰۰۰ · ردشده (فصل) = ۵۱۹٬۶۶۶</span>
+  </div>
+
+  <div class="strip">
+    <div class="chip"><b class="bad">چرخه‌ی فصلی = رد شد</b><span>حتی با ۲۵۰ مغازه/ماه جدید در ۱۸ ماه — قیمت فصلی، ARPU را برای پوشش ۹۵۰ میلیون هزینه‌ی ثابت نمی‌رساند. (تصمیم ۲۵ شهریور: ماه)</span></div>
+    <div class="chip"><b class="good">۳۰ روز + تیم → ماه ۱۵</b><span>تیم کامل (۹۵۰ میلیون) + رشد ۱۲۰ مغازه/ماه؛ سوخت تا آنجا ≈ ۶٬۴۳۷٬۹۱۲٬۴۱۷ تومان.</span></div>
+    <div class="chip"><b class="bad">تنها مالک = غیرممکن</b><span>آنبردینگ هر مغازه ≈ ۲ ساعت تلفن → سقف ≈ ۳۰ مغازه/ماه؛ با این سقف مدل هرگز سربه‌سر نمی‌شود. یک تیم کوچک آنبردینگ/فروش لازم است.</span></div>
+    <div class="chip"><b>حداقل رشد: ۱۰۹ مغازه/ماه</b><span>محاسبه‌شده در مدل (جستجوی دوجنب). کمتر از این، تا ماه ۱۸ سربه‌سر نمی‌آید — بدون بافر. رشد ۱۲۰ بافر دارد (ماه ۱۵).</span></div>
+    <div class="chip"><b class="good">باتری: حاشیه ۸۹–۹۰٪</b><span>باتری حالا یک خط درآمد واقعی است: مغازه+ ماهی ۵۰۰٬۰۰۰ درآمد، هزینه‌اش ۵۷٬۲۵۰.</span></div>
+    <div class="chip"><b>هوش هیبرید: ۳۸ تومان/گفتگو</b><span>٪۸۰ قاعده‌ای رایگان + ٪۲۰ LLM ارزان — میانگین ≈ ۳۸ در برابر ۱۹۰ برای LLM کامل. حاشیه‌ی پلن‌ها ۹۰٪+ می‌ماند.</span></div>
+  </div>
+
+  <div class="card">
+    <h2>حاشیه‌ی هر پلن در چرخه‌ی ۳۰روزه (بنیاد — قبل از باتری)</h2>
+    <table>
+      <tr><th>پلن</th><th>قیمت/ماه</th><th>هوش rule (قاعده‌ای)</th><th>هوش LLM-mini</th><th>هوش LLM-mid</th></tr>
+      <tr class='bad'><td>مغازه</td><td>۹۹۰٬۰۰۰</td><td>۹۹٪</td><td>۶۴٪</td><td>زیان</td></tr>
+<tr class='bad'><td>مغازه+</td><td>۱٬۹۰۰٬۰۰۰</td><td>۹۹٪</td><td>۵۱٪</td><td>زیان</td></tr>
+<tr><td>دفتر</td><td>۳٬۹۰۰٬۰۰۰</td><td>۹۹٪</td><td>۹۸٪</td><td>۸۳٪</td></tr>
+
+    </table>
+    <div class="sub" style="margin-top:8px">در چرخه‌ی ماهانه همان قیمت، درآمدهای ماهانه ۳ برابر سناریوی فصلی می‌شوند. مغز هیبرید (٪۲۰ LLM) هزینه را زیر mini نگه می‌دارد: حاشیه‌ی واقعی بنیاد ۹۰٪+ برای همه‌ی پلن‌ها.</div>
+  </div>
+
+  <div class="card">
+    <h2>جریان نقدی واقع‌بینانه — سناریوهای عملیاتی (چرخه‌ی ۳۰روزه)</h2>
+    <table>
+      <tr><th>سناریو</th><th>سربه‌سر</th><th>عمیق‌ترین سوخت</th></tr>
+      <tr><td>تیم کامل (۹۵۰ میلیون) + رشد ۱۲۰ مغازه/ماه</td><td class='good'>ماه ۱۵</td><td>۶٬۴۳۷٬۹۱۲٬۴۱۷</td></tr>
+<tr><td>حداقل رشد محاسبه‌شده (۱۰۹/ماه)</td><td class='good'>ماه ۱۸</td><td>۷٬۲۳۲٬۸۶۰٬۹۰۰</td></tr>
+<tr><td>تیم لاغر (۴۵۰ میلیون) + رشد ۸۰/ماه</td><td class='good'>ماه ۱۰</td><td>۲٬۱۹۳٬۰۵۵٬۱۸۲</td></tr>
+<tr><td>تیم لاغر (۴۵۰ میلیون) + رشد ۶۰/ماه</td><td class='good'>ماه ۱۴</td><td>۲٬۸۷۵٬۴۷۱٬۳۹۶</td></tr>
+<tr><td>تنها مالک — سقف آنبردینگ ۳۰/ماه</td><td class='bad'>هرگز در ۱۸ ماه</td><td>۱۴٬۳۸۲٬۳۴۱٬۸۲۷</td></tr>
+
+    </table>
+    <div class="sub" style="margin-top:8px">مدل شامل: ramp ۶ماهه‌ی رشد · سقف آنبردینگ · تریال‌ها (۳ تریال/هر مشتری جدید، ۱۲٬۵۰۰ تومان/تریال) · دنینگ ٪۵ · چرخش cohort (٪۴۰ ماه دوم، ٪۱۰ بعدش) · باتری با ramp مصرف · هزینه‌ی متغیر LLM/SMS با تورم FX.</div>
+  </div>
+
+  <div class="card">
+    <h2>تفکیک هزینه‌ی ثابت ۹۵۰٬۰۰۰٬۰۰۰ تومان/ماه <span class="tag">ASSUMPTION — در انتظار چالش AI-B</span></h2>
+    <table>
+      <tr><th>قلم</th><th>تومان/ماه</th></tr>
+      <tr><td>مالک/مدیر (هزینه‌ی فرصت)</td><td>۲۵۰٬۰۰۰٬۰۰۰</td></tr>
+<tr><td>۲ توسعه‌دهنده‌ی تمام‌وقت</td><td>۳۶۰٬۰۰۰٬۰۰۰</td></tr>
+<tr><td>پشتیبانی/آنبردینگ (پاره)</td><td>۱۵۰٬۰۰۰٬۰۰۰</td></tr>
+<tr><td>VPS + زیرساخت + درگاه</td><td>۴۰٬۰۰۰٬۰۰۰</td></tr>
+<tr><td>بازاریابی (بودجه‌ی کم)</td><td>۱۰۰٬۰۰۰٬۰۰۰</td></tr>
+<tr><td>متفرقه/پراکندگی</td><td>۵۰٬۰۰۰٬۰۰۰</td></tr>
+
+    </table>
+    <div class="sub" style="margin-top:8px">مهم‌ترین اهرم: «هزینه‌ی فرصت مالک» (۲۵۰ میلیون). اگر مالک تمام‌وقت نباشد یا ۱ توسعه‌دهنده کفایت کند → سناریوی «تیم لاغر» (سربه‌سر ماه ۱۰–۱۴).</div>
+  </div>
+
+  <div class="card">
+    <h2>باتری — خط درآمد واقعی <span class="tag">تأیید مالک ۲۵ شهریور</span></h2>
+    <table>
+      <tr><th>پلن</th><th>درآمد ماهانه خرد (پیک)</th><th>هزینه ماهانه خرد</th><th>حاشیه</th></tr>
+      <tr><td>مغازه</td><td>۱۷۵٬۰۰۰</td><td>۱۹٬۰۸۳</td><td class='good'>۸۹٪</td></tr>
+<tr><td>مغازه+</td><td>۵۰۰٬۰۰۰</td><td>۵۷٬۲۵۰</td><td class='good'>۸۸٪</td></tr>
+<tr><td>دفتر</td><td>۳۰۰٬۰۰۰</td><td>۲۸٬۶۲۵</td><td class='good'>۹۰٪</td></tr>
+
+    </table>
+    <div class="sub" style="margin-top:8px">قیمت‌ها روی سایت (هر سه کارت) نمایش داده می‌شوند: گفتگوی هوشمند اضافی ۱۰۰۰ تومان (≈۵× هزینه‌ی mini) + فاکتور اضافی ۵۰۰ تومان (پلن دفتر).</div>
+  </div>
+
+  <div class="card">
+    <h2>پارامترهای مدل (منبع هرکدام)</h2>
+    <ul>
+      <li>FX ۲۲۸٬۰۰۰ تومان (بازار تهران، ۱۴۰۵/۶/۱۵) · markup LLM ٪۸۰</li>
+      <li>قیمت پلن‌ها، فاکتور اضافی، گفتگوی رایگان: <b>سایت</b> · صوت: <b>رایگان</b> (edge-tts + Vosk)</li>
+      <li>چرخه‌ی محاسباتی ۳۰ روز: <b>تصمیم مالک ۲۵ شهریور</b> (سایت اصلاح شد) · قیمت گفتگوی باتری ۱۰۰۰ تومان: <b>تأیید مالک</b> (در سایت)</li>
+      <li>هوش هیبرید: ٪۲۰ LLM-mini + ٪۸۰ قاعده‌ای <span class="tag">ASSUMPTION</span></li>
+      <li>آنبردینگ تلفنی برای ۲ نفر (مالک + همکار — از سایت): ≈۲ ساعت × ۱۵۰٬۰۰۰ تومان/ساعت = ۳۰۰٬۰۰۰ تومان/مغازه (یک‌بار) <span class="tag">ASSUMPTION</span></li>
+      <li>تریال: ۷ روز (<b>سایت</b>) · ۳ تریال/مشتری جدید · ۱۲٬۵۰۰ تومان/تریال <span class="tag">ASSUMPTION — متناسب‌شده</span></li>
+      <li>دنینگ ٪۵ · چرخش ٪۴۰ ماه دوم + ٪۱۰/ماه <span class="tag">ASSUMPTION — چالش AI-B</span></li>
+      </ul>
+  </div>
+
+  <div class="card">
+    <h2>اقدامات (وضعیت ۲۵ شهریور)</h2>
+    <ul>
+      <li>✅ اصلاح کپی سایت (فصل → ماه) + قیمت گفتگو روی هر سه کارت — روی <code>ai-a/final</code> (زنده با merge به main) · تست سایت ۲۹/۲۹</li>
+      <li>✅ قیمت گفتگوی باتری ۱۰۰۰ تومان تأیید شد و در سایت است</li>
+      <li>برنامه‌ی رشد: حداقل محاسبه‌شده ۱۰۹ مغازه/ماه (بدون بافر) → تیم آنبردینگ/فروش ۲–۳ نفر؛ هدف بافردار ۱۲۰</li>
+      <li>اگر مسیر «تنها مالک» است: فقط با کاهش ثابت به ≈۴۵۰ میلیون و رشد ۶۰+/ماه ممکن می‌شود (رشد ۳۰ کفایت نمی‌کند)</li>
+    </ul>
+  </div>
+
+  <div class="foot">تولیدکننده: <code>docs/unit-econ/unit_econ.py</code> · بازتولید:
+  <code>cd docs/unit-econ &amp;&amp; python3 unit_econ.py --selftest</code> ·
+  همه‌ی اعداد از خروجی همان اسکریپت ساخته شده‌اند (بدون تایپ دستی) · تاریخ 2026-09-15</div>
+</div>
+</body>
+</html>
