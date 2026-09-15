@@ -8,6 +8,7 @@ import time
 
 from persian import fa_num, jalali, to_int, parse_jalali
 import ocr as ocrmod
+import stt as sttmod
 
 DATA = os.environ.get("SAYA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 
@@ -52,6 +53,10 @@ REMINDER_TO_MANAGER = "✅ یادآوری برای {name} رفت ({when})"
 VOICE_GRACEFUL = (
     "🎙 صدایت را گرفتم، ولی املا صوتی فعلاً در حالت آزمایشی است.\n"
     "متن بفرست تا اجرا کنم — یا عکس فاکتور بفرست.")
+
+VOICE_GRACEFUL_C = (
+    "🎙 صدایت را گرفتم، ولی الان نمی‌توانم آن را به متن تبدیل کنم — برای صاحب مغازه فرستادم.\n"
+    "اگر مهم است، لطفاً همین را به‌صورت متن هم بفرست.")
 
 FALLBACK = (
     "متوجه نشدم 😅\n"
@@ -98,17 +103,19 @@ def handle(msg, store, tg):
 
 
 def _handle_inner(msg, store, tg, chat_id, name, is_manager):
-    # ۱) صوت
+    # ۱) صوت (ماژول A)
     if "voice" in msg:
-        text = _stt(_voice_bytes(msg, store, tg))
+        blob = _voice_bytes(msg, store, tg)
+        text = _stt(blob)
         if text:
             store.log("voice", "stt ok: %s" % text[:120])
-            text = text.strip()
+            _handle_text(text.strip(), store, tg, chat_id, name, is_manager)
         else:
-            tg.safe_send(chat_id, VOICE_GRACEFUL, store)
-            return
-        # ادامه با متن (فرمان)
-        _handle_text(text, store, tg, chat_id, name, is_manager)
+            # بدون STT صدای مشتری گم نمی‌شود (ماژول F): برای صاحب مغازه می‌رود
+            if not is_manager and _manager_id() and blob:
+                tg.send_voice(_manager_id(), blob)
+            tg.safe_send(chat_id, VOICE_GRACEFUL_C if not is_manager else VOICE_GRACEFUL, store)
+            store.log("voice", "stt unavailable -> " + ("relay to manager" if not is_manager else "graceful"))
         return
 
     # ۲) عکس -> فاکتور
@@ -143,25 +150,8 @@ def _voice_bytes(msg, store, tg):
 
 
 def _stt(ogg_bytes):
-    """بک‌اند STT اختیاری (STT_URL) — قرارداد: POST image=ogg -> {"text": ...}"""
-    url = os.environ.get("STT_URL")
-    if not url or not ogg_bytes:
-        return None
-    import json as _json
-    import urllib.request
-    boundary = "----sayastt"
-    body = (("--%s\r\nContent-Disposition: form-data; name=\"image\"; filename=\"v.ogg\"\r\n"
-             "Content-Type: audio/ogg\r\n\r\n" % boundary).encode() +
-            ogg_bytes + ("\r\n--%s--\r\n" % boundary).encode())
-    try:
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
-                     "Authorization": "Bearer " + os.environ.get("STT_KEY", "")})
-        with urllib.request.urlopen(req, timeout=90) as r:
-            return _json.loads(r.read().decode("utf-8")).get("text")
-    except Exception:
-        return None
+    """STT اختیاری (ماژول A) — stt.py: اول Vosk محلی (آفلاین)، بعد STT_URL؛ هرگز نمی‌شکند."""
+    return sttmod.transcribe(ogg_bytes)
 
 
 def _invoice_ok_text(no, total, items, iid):
