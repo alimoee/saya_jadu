@@ -1,0 +1,14 @@
+services:
+  saya-bot:
+    build:
+      context: ..
+      dockerfile: bot/Dockerfile
+    container_name: saya-bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - MANAGER_CHAT_ID=${MANAGER_CHAT_ID}
+      - TZ_HOURS=${TZ_HOURS:-3.5}
+      - TTS_ENABLE=${TTS_ENABLE:-1}
+    volumes:
+      - ./data:/app/data
