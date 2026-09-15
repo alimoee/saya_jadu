@@ -440,11 +440,31 @@ def _maybe_morning_report(store, tg):
 
 
 # ── حلقه‌ی یادآورها (از bot.py صدا می‌شود) ──────────────
+def _send_reminder(recipient, text, store, tg):
+    """اول صدا (اگر TTS باشد)، اگر نه متن؛ اگر صدا شکست، متن."""
+    try:
+        import tts
+        blob = tts.synthesize("یادآوری: " + text)
+    except Exception:
+        blob = None
+    if blob:
+        try:
+            os.makedirs(os.path.join(DATA, "tts"), exist_ok=True)
+            ok = tg.send_voice(recipient, blob).get("ok", False)
+            if ok and store is not None:
+                store.log("reminder-voice", "sent")
+            if ok:
+                return
+        except Exception:
+            pass
+    tg.safe_send(recipient, REMINDER_TO_CUSTOMER.format(text=text), store, "reminder")
+
+
 def poll_reminders(store, tg):
     for r in store.due_reminders():
         store.mark_reminder(r["id"])
         if r.get("chat_id"):
-            tg.safe_send(r["chat_id"], REMINDER_TO_CUSTOMER.format(text=r["text"]), store, "reminder")
+            _send_reminder(r["chat_id"], r["text"], store, tg)
         if _manager_id():
             tg.safe_send(_manager_id(),
                          REMINDER_TO_MANAGER.format(name=r["customer"], when=jalali(datetime.date.today())),
