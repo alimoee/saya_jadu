@@ -38,6 +38,35 @@ pip3 install edge-tts
 # systemd unit: در bot/README.md
 ```
 
+## STT — فرمان صوتی (اختیاری، ماژول A)
+
+ربات هر دو گزینه را به‌صورت خودکار می‌فهمد؛ اگر هیچ‌کدام نباشد، صدای مشتری **برای صاحب‌مغازه ارسال می‌شود** + متن محترمانه (چیزی گم نمی‌شود).
+
+### گزینه ۱: Vosk محلی (آفلاین — توصیه‌شده برای VPS کوچک)
+```bash
+# داخل کانتینر (یا روی سیستم):
+pip install vosk
+mkdir -p /opt/models && cd /opt/models
+wget https://alphacephei.com/vosk/models/vosk-model-fa-0.7.zip
+unzip vosk-model-fa-0.7.zip
+```
+در `docker-compose.yml`:
+```yaml
+environment:
+  - VOSK_MODEL_PATH=/opt/models/vosk-model-fa-0.7
+volumes:
+  - ./models:/opt/models   # مدل را در ./models نگه‌دار
+```
+و با `docker build --build-arg INSTALL_VOSK=1` بساز. مدل ~40MB است؛ بارگذاری فقط یک‌بار در هر پروس.
+
+### گزینه ۲: بک‌اند HTTP
+هر سرور ASR که POST فایل ogg بپذیرد و `{"text": "..."}` برگرداند:
+```yaml
+environment:
+  - STT_URL=http://asr-server:8000/transcribe
+  - STT_KEY=...
+```
+
 ## نکات
 
 - **پورت باز لازم نیست** — ربات با long polling با Telegram حرف می‌زند (outbound فقط).
