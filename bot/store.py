@@ -223,6 +223,15 @@ class Store:
             return d
 
     # ── log / رویدادها (برای «مشکلی احدا نکند») ───────
+    def prune_log(self, days=30):
+        """مسیر رشد بی‌پایانِ log (issue #7): قدیمی‌تر از N روز حذف می‌شود."""
+        try:
+            with self._conn() as c:
+                c.execute("DELETE FROM log WHERE ts < ?",
+                          (int(time.time()) - days * 86400,))
+        except Exception:
+            pass
+
     def log(self, kind, detail):
         try:
             with self._conn() as c:
