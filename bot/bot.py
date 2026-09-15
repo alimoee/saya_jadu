@@ -249,6 +249,41 @@ def selftest():
         talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
                         "text": "/credit رضا 800000", "message_id": 13}, st, MockTG())
         check("credit over half blocked", st.credit_balance("رضا") == 400000)
+
+        # تاریخ شمسی/میلادی در /credit و /remind (issue #5 — پچ بازبینی AI-B)
+        print("— تاریخ شمسی/میلادی —")
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit مریم 300000 1405-07-25", "message_id": 60}, st, MockTG())
+        check("jalali ISO credit", st.credit_balance("مریم") == 300000)
+        check("jalali ISO label", any("۲۵ مهر ۱۴۰۵" in x for (_c, x) in sent if isinstance(x, str)))
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit سارا 200000 25/7", "message_id": 61}, st, MockTG())
+        check("jalali slash credit", st.credit_balance("سارا") == 200000)
+        check("jalali slash label", any("۲۵ مهر" in x for (_c, x) in sent if isinstance(x, str)))
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit حسین 100000 1405-13-40", "message_id": 62}, st, MockTG())
+        check("invalid date rejected", any("نمی‌فهمم" in x for (_c, x) in sent if isinstance(x, str)))
+        check("invalid credit not stored", st.credit_balance("حسین") == 0)
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit نگار 150000 2026-12-01", "message_id": 63}, st, MockTG())
+        check("gregorian still ok", st.credit_balance("نگار") == 150000)
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/remind مریم 1405-07-25 نسیه‌ات یادت نره", "message_id": 64}, st, MockTG())
+        check("jalali reminder label", any("۲۵ مهر ۱۴۰۵" in x for (_c, x) in sent if isinstance(x, str)))
+        future = st.due_reminders(time.time() + 300 * 86400)
+        check("jalali reminder stored", any(r["text"] == "نسیه‌ات یادت نره" for r in future))
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/remind مریم 22/7 چک بانکی", "message_id": 65}, st, MockTG())
+        check("slash date is not minutes", any("مهر" in x for (_c, x) in sent if isinstance(x, str)))
+        future2 = st.due_reminders(time.time() + 300 * 86400)
+        check("slash reminder stored", any(r["text"] == "چک بانکی" for r in future2))
+
         # سررسید و عقب‌افتاده
         now = time.time()
         st.add_credit("رضا", 666, 200000, now + 3600)          # امروز سررسید
