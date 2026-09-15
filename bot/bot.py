@@ -75,6 +75,15 @@ def selftest():
         check("reminder due", len(due) == 1 and due[0]["id"] == rid)
         st.mark_reminder(rid)
         check("reminder marked", st.due_reminders() == [])
+        # prune_log (issue #7): قدیمی حذف، تازه می‌ماند
+        st.log("fresh", "keep me")
+        with st._conn() as c:
+            c.execute("INSERT INTO log(ts,kind,detail) VALUES(?,?,?)",
+                      (int(time.time()) - 90 * 86400, "old", "drop me"))
+        st.prune_log(30)
+        rows = [r["kind"] for r in st._conn().execute("SELECT kind FROM log").fetchall()]
+        check("prune keeps fresh", "fresh" in rows)
+        check("prune drops old", "old" not in rows)
 
     print("— talk (mock tg) —")
     sent = []
@@ -350,9 +359,19 @@ def main():
     threading.Thread(target=reminder_loop, daemon=True).start()
 
     offset = None
+    last_err_log = 0.0
+    last_prune = 0.0
     while stop["run"]:
+        if time.time() - last_prune > 3600:
+            st.prune_log(30)
+            last_prune = time.time()
         r = b.get_updates(offset=offset, timeout=30)
-        if not r.get("ok") and "retry" in r.get("description", ""):
+        if not r.get("ok"):
+            # 429 را خودِ _call با retry_after رعایت می‌کند؛ اینجا فقط: لاگ خفیف + مکث امن (issue #7)
+            if time.time() - last_err_log > 300:
+                st.log("get-updates", r.get("description", "")[:200])
+                last_err_log = time.time()
+            time.sleep(3)
             continue
         for up in r.get("result", []):
             offset = up["update_id"] + 1
