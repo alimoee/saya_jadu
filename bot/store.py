@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS reminders(
   remind_at INTEGER, done INTEGER DEFAULT 0, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS customers(
   chat_id INTEGER PRIMARY KEY, name TEXT, phone TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS credits(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer TEXT, chat_id INTEGER, amount INTEGER, paid INTEGER DEFAULT 0,
+  due INTEGER, status TEXT DEFAULT 'open', created_at INTEGER);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS log(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER, kind TEXT, detail TEXT);
@@ -103,6 +108,83 @@ class Store:
         with self._conn() as c:
             r = c.execute("SELECT * FROM customers WHERE chat_id=?", (chat_id,)).fetchone()
             return dict(r) if r else None
+
+    # ── credits / نسیه و نردبان اعتبار ────────────────
+    def get_setting(self, key, default=None):
+        with self._conn() as c:
+            r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return r["value"] if r else default
+
+    def set_setting(self, key, value):
+        with self._conn() as c:
+            c.execute("INSERT INTO settings(key,value) VALUES(?,?) "
+                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+
+    def credit_cap(self):
+        v = self.get_setting("credit_cap")
+        try:
+            return int(v) if v else 50000000
+        except ValueError:
+            return 50000000
+
+    def add_credit(self, customer, chat_id, amount, due, approved=False):
+        with self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO credits(customer,chat_id,amount,paid,due,status,created_at)"
+                " VALUES(?,?,?,0,?,?,?)",
+                (customer, chat_id, amount, due,
+                 "approved" if approved else "open", int(time.time())))
+            return cur.lastrowid
+
+    def credit_balance(self, customer):
+        with self._conn() as c:
+            r = c.execute(
+                "SELECT COALESCE(SUM(amount-paid),0) AS b FROM credits "
+                "WHERE customer=? AND status IN ('open','approved')", (customer,)).fetchone()
+            return r["b"] if r else 0
+
+    def pay_credit(self, customer, amount):
+        """amount را از قدیمی‌ترین نسیه‌ها کم می‌کند؛ برگردان: مجموع کسرشده"""
+        done = 0
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT id, amount-paid AS rest FROM credits WHERE customer=?"
+                " AND status IN ('open','approved') AND paid<amount ORDER BY id",
+                (customer,)).fetchall()
+            for row in rows:
+                take = min(row["rest"], amount - done)
+                c.execute("UPDATE credits SET paid=paid+? WHERE id=?", (take, row["id"]))
+                done += take
+                if done >= amount:
+                    break
+        return done
+
+    def due_credits(self, start, end=None):
+        end = end if end is not None else start + 86400
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM credits WHERE status IN ('open','approved') "
+                "AND paid<amount AND due BETWEEN ? AND ? ORDER BY due", (start, end)).fetchall()
+            return [dict(r) for r in rows]
+
+    def overdue_credits(self, now=None):
+        now = int(now if now is not None else time.time())
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM credits WHERE status IN ('open','approved') "
+                "AND paid<amount AND due<? ORDER BY due", (now,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def invoices_since(self, ts):
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM invoices WHERE created_at>=? ORDER BY id", (int(ts),)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["items"] = json.loads(d.get("items") or "[]")
+                out.append(d)
+            return out
 
     # ── log / رویدادها (برای «مشکلی احدا نکند») ───────
     def log(self, kind, detail):
