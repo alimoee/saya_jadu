@@ -414,9 +414,7 @@ def _cmd_remind(t, store, tg, chat_id, is_manager):
         tg.safe_send(chat_id, "زمان را نمی‌فهمم — دقیقه (مثلاً ۳۰)، YYYY-MM-DD یا شمسی (مثلاً 22/7) بده.", store)
         return
 
-    cid = chat_id
-    cust_row = store.get_customer(chat_id)
-    rid = store.add_reminder(cust, cid, rtext, remind_at)
+    rid = store.add_reminder(cust, chat_id, rtext, remind_at)
     store.log("reminder", "id=%s cust=%s at=%s" % (rid, cust, remind_at))
     tg.safe_send(chat_id, REMINDER_OK.format(name=cust, when=when_label, text=rtext[:200]), store)
 
