@@ -187,6 +187,48 @@ def selftest():
         talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
                         "text": "/pay علی 300000", "message_id": 11}, st, MockTG())
         check("paid", st.credit_balance("علی") == 800000)
+
+        # تاریخ شمسی (issue #5)
+        print("— تاریخ شمسی —")
+        import persian as pmod
+        from persian import jalali_to_gregorian as j2g
+        for (jy, jm, jd) in ((1405, 1, 1), (1405, 7, 25), (1403, 12, 30), (1404, 12, 29)):
+            gy, gm, gd = j2g(jy, jm, jd)
+            check("j2g roundtrip %d-%d-%d" % (jy, jm, jd),
+                  pmod._g2j(gy, gm, gd) == (jy, jm, jd))
+
+        def _raises(fn):
+            try:
+                fn()
+                return False
+            except Exception:
+                return True
+        check("j2g invalid raises", _raises(lambda: j2g(1405, 12, 30)))  # ۱۴۰۵ کبیسه نیست
+
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit مریم 300000 1405-07-25", "message_id": 15}, st, MockTG())
+        check("jalali credit registered", st.credit_balance("مریم") == 300000)
+        check("jalali credit label", any("۲۵ مهر ۱۴۰۵" in t for (_c, t) in sent if isinstance(t, str)))
+
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/remind مریم 1405-07-25 نسیه‌ات یادت نره", "message_id": 16}, st, MockTG())
+        check("jalali reminder label", any("۲۵ مهر ۱۴۰۵" in t for (_c, t) in sent if isinstance(t, str)))
+        future = st.due_reminders(time.time() + 300 * 86400)
+        check("jalali reminder stored", len(future) == 1 and future[0]["text"] == "نسیه‌ات یادت نره")
+
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit حسین 100000 1405-13-40", "message_id": 17}, st, MockTG())
+        check("jalali invalid rejected", any("نمی‌فهمم" in t for (_c, t) in sent if isinstance(t, str)))
+        check("invalid credit not stored", st.credit_balance("حسین") == 0)
+
+        sent.clear()
+        talkmod.handle({"chat": {"id": 999}, "from": {"first_name": "م"},
+                        "text": "/credit سارا 200000 2026-12-01", "message_id": 18}, st, MockTG())
+        check("gregorian still ok", st.credit_balance("سارا") == 200000)
+
         # سررسید و عقب‌افتاده
         now = time.time()
         st.add_credit("رضا", 666, 200000, now + 3600)          # امروز سررسید

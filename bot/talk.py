@@ -6,8 +6,11 @@ import os
 import re
 import time
 
-from persian import fa_num, jalali, to_int
+from persian import fa_num, jalali, to_int, jalali_to_gregorian
 import ocr as ocrmod
+
+# تبدیل ارقام فارسی به لاتین (برای پارس تاریخ — ارقام از کد‌پوینت، قانون پروژه)
+_FA_TRANS = str.maketrans("".join(chr(0x06F0 + i) for i in range(10)), "0123456789")
 
 DATA = os.environ.get("SAYA_DATA", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 
@@ -321,6 +324,26 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
     tg.safe_send(chat_id, FALLBACK, store)
 
 
+# ── تاریخ (شمسی/میلادی — issue #5) ────────────────────
+def _parse_when_date(s, hour):
+    """«YYYY-MM-DD» — سال < ۱۷۰۰ شمسی (کاربر ایرانی)، وگرنه میلادی؛
+    ماه/روز یک‌رقمی هم پذیرفته است (۱۴۰۵-۷-۲۵). ارقام فارسی هم.
+    خروجی: datetime (ساعت مشخص) یا None."""
+    s = str(s).strip().translate(_FA_TRANS)
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        if y < 1700:
+            gy, gm, gd = jalali_to_gregorian(y, mo, d)
+        else:
+            gy, gm, gd = y, mo, d
+        return datetime.datetime(gy, gm, gd, hour)
+    except ValueError:
+        return None
+
+
 # ── یادآور (مسیر D) ───────────────────────────────────
 def _cmd_remind(t, store, tg, chat_id, is_manager):
     parts = t.split(None, 3)
@@ -331,24 +354,20 @@ def _cmd_remind(t, store, tg, chat_id, is_manager):
 
     remind_at = None
     when_label = ""
-    mins = to_int(when)
-    if mins is not None and 0 < mins < 100000:
-        remind_at = time.time() + mins * 60
-        when_label = fa_num(mins) + " دقیقه دیگر"
-    elif re.match(r"^\d{4}-\d{2}-\d{2}$", when):
-        try:
-            d = datetime.datetime.strptime(when, "%Y-%m-%d").replace(hour=9, minute=0)
-            remind_at = d.timestamp()
-            when_label = jalali(d.date()) + " ساعت ۹ صبح"
-        except ValueError:
-            pass
+    dt = _parse_when_date(when, 9)  # اول تاریخ (شمسی/میلادی)، بعد دقیقه — issue #5
+    if dt is not None:
+        remind_at = dt.timestamp()
+        when_label = jalali(dt.date()) + " ساعت ۹ صبح"
+    else:
+        mins = to_int(when)
+        if mins is not None and 0 < mins < 100000:
+            remind_at = time.time() + mins * 60
+            when_label = fa_num(mins) + " دقیقه دیگر"
     if remind_at is None:
-        tg.safe_send(chat_id, "زمان را نمی‌فهمم — دقیقه (مثلاً ۳۰) یا YYYY-MM-DD بده.", store)
+        tg.safe_send(chat_id, "زمان را نمی‌فهمم — دقیقه (مثلاً ۳۰)، تاریخ شمسی (۱۴۰۵-۰۷-۲۵) یا میلادی (2026-10-17) بده.", store)
         return
 
-    cid = chat_id
-    cust_row = store.get_customer(chat_id)
-    rid = store.add_reminder(cust, cid, rtext, remind_at)
+    rid = store.add_reminder(cust, chat_id, rtext, remind_at)
     store.log("reminder", "id=%s cust=%s at=%s" % (rid, cust, remind_at))
     tg.safe_send(chat_id, REMINDER_OK.format(name=cust, when=when_label, text=rtext[:200]), store)
 
@@ -361,17 +380,17 @@ def _cmd_credit(t, store, tg, chat_id, approved):
         return
     cust = parts[1]
     amt = to_int(parts[2])
-    due = None
-    if len(parts) == 4 and re.match(r"^\d{4}-\d{2}-\d{2}$", parts[3]):
-        try:
-            due = datetime.datetime.strptime(parts[3], "%Y-%m-%d").replace(hour=23).timestamp()
-        except ValueError:
-            due = None
-    if due is None:
-        due = time.time() + 30 * 86400
     if not amt or amt <= 0:
         tg.safe_send(chat_id, "مبلغ درست نیست.", store)
         return
+    if len(parts) == 4:  # سررسید شمسی یا میلادی — هرگز بی‌صدا به +۳۰ روز نرو (issue #5)
+        dt = _parse_when_date(parts[3], 23)
+        if dt is None:
+            tg.safe_send(chat_id, "تاریخ سررسید را نمی‌فهمم — شمسی مثل ۱۴۰۵-۰۷-۲۵ یا میلادی مثل 2026-10-17.", store)
+            return
+        due = dt.timestamp()
+    else:
+        due = time.time() + 30 * 86400
     if not approved and store.credit_balance(cust) + amt > store.credit_cap():
         store.log("credit-cap", "%s %s > %s" % (cust, amt, store.credit_cap()))
         tg.safe_send(chat_id, CREDIT_CAP.format(
