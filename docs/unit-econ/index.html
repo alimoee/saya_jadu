@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1240">
+<title>سایا — اقتصاد واحد، قیف، جریان نقدی (v2 تست‌شده)</title>
+<style>
+:root{
+  --paper: oklch(0.972 0.012 82); --paper-2: oklch(0.955 0.018 82);
+  --line: oklch(0.86 0.02 75); --line-strong: oklch(0.55 0.03 70);
+  --ink: oklch(0.22 0.02 65); --ink-2: oklch(0.42 0.02 65); --ink-3: oklch(0.58 0.02 65);
+  --red: oklch(0.55 0.17 27); --red-tint: oklch(0.93 0.06 27);
+  --green: oklch(0.52 0.13 155); --green-tint: oklch(0.94 0.05 155);
+  --gold: oklch(0.72 0.13 78); --gold-tint: oklch(0.94 0.06 82);
+}
+*{box-sizing:border-box}
+body{margin:0;background:oklch(0.90 0.015 80);font-family:Vazirmatn,system-ui,Tahoma,sans-serif;color:var(--ink);font-feature-settings:"tnum" 1}
+.page{width:1240px;margin:24px auto;background:var(--paper);padding:56px 64px 48px;position:relative;
+  background-image:radial-gradient(oklch(0.90 0.02 80 / .35) 1px,transparent 1px);background-size:22px 22px}
+.page::before{content:"";position:absolute;inset:14px;border:1px solid var(--line);pointer-events:none}
+.header{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end;border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:26px}
+.brand{display:flex;align-items:center;gap:14px}
+.brand-mark{width:56px;height:56px;border:2px solid var(--ink);border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:22px;background:var(--gold-tint)}
+h1{font-size:30px;margin:0;font-weight:900}
+.sub{font-size:14px;color:var(--ink-2);margin-top:6px;line-height:1.7}
+.meta{font-size:11px;color:var(--ink-3);text-align:left;display:grid;gap:3px;white-space:nowrap}
+.meta b{color:var(--ink-2)}
+.alert{background:var(--red-tint);border:1px solid var(--red);padding:12px 16px;font-size:13px;line-height:1.9;margin-bottom:30px}
+.alert b{color:var(--red)}
+section{margin-bottom:34px}
+.kick{font-size:11px;letter-spacing:.12em;color:var(--ink-3);font-weight:700}
+h2{font-size:21px;margin:4px 0 6px;font-weight:900}
+.lede{font-size:13px;color:var(--ink-2);line-height:1.9;margin:0 0 14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:right}
+th{background:var(--paper-2);font-weight:800;font-size:12px}
+td.num,th.num{text-align:center;font-variant-numeric:tabular-nums}
+.pos{color:var(--green);font-weight:800}.neg{color:var(--red);font-weight:800}
+.find{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{border:1px solid var(--line);padding:16px 18px}
+.card .t{font-size:11px;letter-spacing:.1em;color:var(--ink-3);font-weight:800}
+.card h3{font-size:16px;margin:6px 0;font-weight:900}
+.card p{font-size:13px;line-height:1.9;margin:0;color:var(--ink-2)}
+.card.key{background:var(--gold-tint);border-color:var(--gold)}
+.funnel{display:flex;align-items:center;gap:6px;margin:10px 0 4px;flex-wrap:wrap}
+.fstep{flex:1;min-width:150px;border:1px solid var(--line);padding:10px 12px;background:var(--paper-2)}
+.fstep .n{font-size:19px;font-weight:900}
+.fstep .l{font-size:11px;color:var(--ink-2);line-height:1.6}
+.fdrop{font-size:10px;color:var(--red);font-weight:800;align-self:center;white-space:nowrap}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:10px}
+.kpi{border:1px solid var(--line);padding:14px;text-align:center}
+.kpi .v{font-size:26px;font-weight:900}
+.kpi .l{font-size:11px;color:var(--ink-2);margin-top:4px;line-height:1.7}
+.note{font-size:11px;color:var(--ink-3);line-height:1.8;margin-top:8px}
+.foot{border-top:2px solid var(--ink);margin-top:10px;padding-top:14px;font-size:11px;color:var(--ink-3);line-height:1.9}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div>
+      <div class="brand">
+        <div class="brand-mark">س</div>
+        <div>
+          <div class="kick">سایا · بازبینی استراتژیک · اقتصاد واحد</div>
+          <h1>اقتصاد واحد، قیف درآمد، جریان نقدی — نسخه‌ی v2 تست‌شده</h1>
+        </div>
+      </div>
+      <div class="sub">هر عدد این سند از <b>docs/unit-econ/unit_econ.py</b> بازتولید می‌شود (<code>python3 unit_econ.py --selftest</code>).
+      تفاوت با v1: دوره‌ی صورتحساب صریح، چرخش مشتری واقع‌بینانه، و هزینه‌ی واقعی استک (صوت رایگان).</div>
+    </div>
+    <div class="meta">
+      <div>DATE · <b>۱۴۰۵/۰۶/۲۴</b></div>
+      <div>FX · <b>۲۲۷٬۸۰۰</b> ت/دلار (تهران، ۱۴۰۵/۰۶/۱۵)</div>
+      <div>LLM · <b>×۱٫۸</b> واسط ایرانی · صوت <b>رایگان</b></div>
+      <div>SOURCE · <b>unit_econ.py</b> (repo، تست‌شده)</div>
+      <div>VERSION · v2 · <b>محرمانه</b></div>
+    </div>
+  </div>
+
+  <div class="alert"><b>هشدار خواننده —</b> اعداد «برآورد» است (تعرفه‌ی عمومی × مصرف مفروض؛ داده‌ی واقعی مشتری هنوز نیست).
+  <b>یک تصمیم مالک کل مدل را عوض می‌کند:</b> دوره‌ی صورتحساب ۳۰ روزه است یا ۹۰ روزه؟ (بخش ۰۱ — خودِ متن سایت تناقض دارد.)</div>
+
+  <!-- ۰۱ تناقض دوره -->
+  <section>
+    <div class="kick">۰۱ · BEFORE EVERYTHING</div>
+    <h2>تناقض داخلی در متن سایت — تصمیم مالک</h2>
+    <p class="lede">سایت زنده هم‌زمان دو چیز می‌گوید: «۹۹۰ هزار تومان به‌ازای <b>هر فصل</b>» و «یعنی <b>۳۳ هزار در روز</b>».
+    اما ۳۳ هزار × ۹۰ روز = <b>۲٬۹۰٬۰۰</b> — سه برابر ۹۹۰ هزار. «۳۳ هزار در روز» فقط با دوره‌ی <b>۳۰ روزه</b> درست است.
+    این یکی از دو عدد باید اصلاح شود — و تا آن‌وقت، همه‌ی مدل با هر دو تفسیر نشان داده می‌شود.</p>
+    <table>
+      <tr><th>تفسیر</th><th class="num">دوره</th><th class="num">ARPU ماهانه (میانگین ترکیب)</th><th>نتیجه در ۱۸ ماه (چرخش واقع‌بینانه)</th></tr>
+      <tr><td>«فصل» واقعی</td><td class="num">۹۰ روز</td><td class="num">۵۲۰ هزار ت</td><td class="neg">هیچ سناریویی به سربه‌سر نمی‌رسد</td></tr>
+      <tr><td>«۳۳ هزار در روز»</td><td class="num">۳۰ روز</td><td class="num">۱٬۵۶۰ هزار ت</td><td class="pos">میانه: ماه ۱۲ · خوش‌بین: ماه ۴</td></tr>
+    </table>
+    <div class="note">ترکیب پلن‌ها (فرض): ۶۰٪ مغازه / ۳۰٪ مغازه+ / ۱۰٪ دفتر · چرخش: ماه دوم هر cohort ۴۰٪ می‌ریزد، بعدش ۱۰٪ ماهانه.</div>
+  </section>
+
+  <!-- ۰۲ اقتصاد واحد -->
+  <section>
+    <div class="kick">۰۲ · UNIT ECONOMICS · PER SHOP · PER 90-DAY CYCLE</div>
+    <h2>کجا هر مغازه سود می‌سازد</h2>
+    <p class="lede">حاشیه‌ی هر پلن در یک دوره‌ی ۹۰ روزه، بر اساس نوع مغز منشی. تفاوت با v1: <b>صوت (TTS/STT) در استک واقعی سایا رایگان است</b>
+    (edge-tts + Vosk) — v1 آن را به‌قیمت ابر محاسبه کرده بود.</p>
+    <table>
+      <tr><th>پلن</th><th class="num">قیمت/دوره</th><th class="num">منشی الگویی<br>(بدون LLM)</th><th class="num">LLM اقتصادی<br>(۴o-mini class)</th><th class="num">LLM میان‌رده<br>(4o/Sonnet class)</th></tr>
+      <tr><td>مغازه (۱٬۸۰۰ گفتگو/ماه*)</td><td class="num">۹۹۰٬۰۰۰</td><td class="num pos">+۹۸٪</td><td class="num neg">−۵٪</td><td class="num neg">−۱٬۶۳۵٪</td></tr>
+      <tr><td>مغازه+ (۴٬۸۰۰ گفتگو/ماه*)</td><td class="num">۱٬۹۰٬۰۰</td><td class="num pos">+۹۸٪</td><td class="num neg">−۴۵٪</td><td class="num neg">−۲٬۳۱۱٪</td></tr>
+      <tr><td>دفتر (۲۰۰ گفتگو/ماه + فاکتور خرد)</td><td class="num">۳٬۹۰۰٬۰۰۰</td><td class="num pos">+۹۹٪</td><td class="num pos">+۹۶٪</td><td class="num pos">+۵۰٪</td></tr>
+    </table>
+    <div class="note">* مصرف مفروض (فرض v1). هزینه‌ی LLM بر هر گفتگو: اقتصادی ۱۹۰ / میان‌رده ۳٬۱۸۰ / پیشرو ۷٬۱۸۲ تومان.
+    SMS: ۱۲۰ تومان/عدد. پلن دفتر از سایت: ۲۰۰ مکالمه/ماه + فراتر ۲۰ فاکتور، ۵۰۰ تومان هر فاکتور.</div>
+    <div class="find" style="margin-top:14px">
+      <div class="card key"><div class="t">FINDING 01</div>
+        <h3>منشی الگویی، همه‌ی سلول‌ها را مثبت می‌کند</h3>
+        <p>مغز الگویی (rule-based) هزینه‌ی حدود صفر دارد و حاشیه‌ی ۹۸–۹۹٪ می‌دهد. LLM به‌جای «مغز پیش‌فرض»، یک
+        <b>گزینه‌ی پریمیوم پرمصرف</b> است — دقیقاً همان «باتری».</p></div>
+      <div class="card"><div class="t">MITIGATION</div>
+        <h3>LLM را بفروش، نه مخفی کن</h3>
+        <p>پلن پایه = منشی الگویی (حاشیه‌ی ۹۸٪). گفتگوهای LLM و فاکتورهای فراسقف = <b>بسته‌ی اعتبار با حاشیه‌ی ۴–۶×</b>
+        (مدل شارژ). سود اصلی از مصرف است، نه اشتراک.</p></div>
+    </div>
+  </section>
+
+  <!-- ۰۳ قیف -->
+  <section>
+    <div class="kick">۰۳ · REVENUE FUNNEL · MARKET → PAYING SHOP (فرض‌های v1)</div>
+    <h2>از بازار تا مغازه‌ی پایدار</h2>
+    <div class="funnel">
+      <div class="fstep"><div class="n">۳٫۲M</div><div class="l">اصناف خرد ایران<br><span style="color:var(--ink-3)">بدون منبع رسمی</span></div></div>
+      <div class="fdrop">▼ ۱۰٪</div>
+      <div class="fstep"><div class="n">۱۶۰K</div><div class="l">دیجیتال‌پذیر + گوشی<br>لوازم یدکی · عطاری · پوشاک</div></div>
+      <div class="fdrop">▼ ۵٪</div>
+      <div class="fstep"><div class="n">۲۴K</div><div class="l">لید کیفی<br>اتحادیه · معرفی · رابط جوان</div></div>
+      <div class="fdrop">▼ ۱۵٪</div>
+      <div class="fstep"><div class="n">۸٬۴۰۰</div><div class="l">تریال ۱۴ روزه فعال<br>+ حالت سایه</div></div>
+      <div class="fdrop">▼ ۳۵٪</div>
+      <div class="fstep"><div class="n">۵٬۰۴۰</div><div class="l">مشتری پایدار<br>(بعد از تمدید ماه ۲)</div></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">۱٬۸۴۸</div><div class="l">مغازه‌ی پایدار برای سربه‌سر<br>تیم مینیمال ۹۵۰M ت/ماه (دوره ۹۰ روزه، منشی الگویی)</div></div>
+      <div class="kpi"><div class="v">~۶۲۰</div><div class="l">همان سربه‌سر اگر دوره ۳۰ روزه باشد<br>(ARPU سه برابر)</div></div>
+      <div class="kpi"><div class="v neg">هرگز</div><div class="l">با LLM اقتصادی برای همه‌ی گفتگوها<br>(۳۲٬۲۸۸ مغازه — بی‌ربط بازار)</div></div>
+    </div>
+  </section>
+
+  <!-- ۰۴ جریان نقدی -->
+  <section>
+    <div class="kick">۰۴ · CASH FLOW · 18-MONTH RUNWAY</div>
+    <h2>چند مغازه به بعد، کسب‌وکار نفس می‌کشد</h2>
+    <p class="lede">هزینه‌ی ثابت ۹۵۰M تومان/ماه (تیم مینیمال — فرض). رشد خطی + چرخش واقع‌بینانه (ماه دوم ۴۰٪، بعدش ۱۰٪ ماهانه).
+    مقایسه با v1: آن‌ها بدون چرخش و با دوره‌ی ۳۰ روزه «سربه‌سر ماه ۱۴» نوشته بودند؛ با چرخش واقعی میانه <b>ماه ۱۲</b> و بدون چرخش <b>ماه ۶</b>.</p>
+    <table>
+      <tr><th>دوره / سناریو</th><th class="num">رشد</th><th class="num">سربه‌سر</th><th class="num">سوخت نقدی تا م۱۸</th></tr>
+      <tr><td>۹۰ روزه · بدبین</td><td class="num">+۴۰/ماه</td><td class="num neg">هرگز</td><td class="num">۱۵۵ میلیارد</td></tr>
+      <tr><td>۹۰ روزه · میانه</td><td class="num">+۱۲۰/ماه</td><td class="num neg">هرگز</td><td class="num">۱۲۴ میلیارد</td></tr>
+      <tr><td>۹۰ روزه · خوش‌بین</td><td class="num">+۲۵/ماه</td><td class="num neg">هرگز</td><td class="num">۷٬۴ میلیارد</td></tr>
+      <tr><td>۳۰ روزه · بدبین</td><td class="num">+۴۰/ماه</td><td class="num neg">هرگز</td><td class="num">۱۲۴ میلیارد</td></tr>
+      <tr><td>۳۰ روزه · میانه</td><td class="num">+۱۲۰/ماه</td><td class="num pos">ماه ۱۲</td><td class="num">۳٬۷ میلیارد</td></tr>
+      <tr><td>۳۰ روزه · خوش‌بین</td><td class="num">+۲۵۰/ماه</td><td class="num pos">ماه ۴</td><td class="num">۱٫۰ میلیارد</td></tr>
+    </table>
+    <div class="find" style="margin-top:14px">
+      <div class="card key"><div class="t">FINDING 02</div>
+        <h3>دوره‌ی ۹۰ روزه با این ARPU، مدل را می‌خورد</h3>
+        <p>با دوره‌ی واقعی ۹۰ روزه، حتی سناریوی خوش‌بین در ۱۸ ماه به سربه‌سر نمی‌رسد (حداکثر ۱٬۷۵۰ مغازه پایدار ≈ ۴۵۰M درآمد/ماه
+        در برابر ۹۵۰M هزینه). یا دوره ۳۰ روزه، یا ARPU باید از «باتری» (مصرف) بزرگ‌تر شود.</p></div>
+      <div class="card"><div class="t">FINDING 03</div>
+        <h3>چرخش، قهرمان داستان نیست — چسبندگی است</h3>
+        <p>فاصله‌ی «ماه ۶» (بدون چرخش) تا «ماه ۱۲» (با چرخش) نشان می‌دهد <b>چسبندگی ماه دوم</b> مهم‌تر از سرعت فروش است:
+        مرور شب، گزارش صبح و نردبان نسیه دقیقاً همان اهرم‌ها هستند — به KPI تبدیل شوند.</p></div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <b>فرض‌ها (همه صریح در unit_econ.py):</b> FX ۲۲۷۸۰۰ (تهران ۱۴۵/۰۶/۱۵ — خبرآنلاین) · markup واسط ۱٫۸× · ۱٬۵۰۰+۴۰۰ توکن/گفتگو ·
+    ۴۰٪ گفتگوها صوتی · صوت رایگان (edge-tts/Vosk) · SMS ۱۲۰ ت · مصرف پلن‌ها: ۱٬۸۰/۴٬۸۰۰/۲۰ گفتگو/ماه + فاکتور خرد ·
+    هزینه ثابت ۹۵۰M (تیم مینیمال) · اعداد قیف از v1 (بدون منبع رسمی) · چرخش ۴۰٪ ماه دوم + ۱۰٪ ماهانه.<br>
+    <b>بازتولید:</b> <code>cd docs/unit-econ &amp;&amp; python3 unit_econ.py</code> · تست: <code>python3 unit_econ.py --selftest</code> ·
+    نسخه‌ی v1 (Genspark) مرجع اولیه بود؛ این نسخه مرجع محاسباتی repo است. <b>محرمانه — فقط داخل دایره‌ی تصمیم سایا.</b>
+  </div>
+
+</div>
+</body>
+</html>
