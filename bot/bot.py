@@ -131,12 +131,32 @@ def selftest():
         check("customer relayed", any(c in (999, "999") and "علی" in t for (c, t) in sent if isinstance(t, str)))
         check("customer acked", any(c == 555 and "پیامت رفت" in t for (c, t) in sent if isinstance(t, str)))
 
-        # یادآور -> موعد -> ارسال
+        # یادآور -> موعد (گذشته) -> ارسال متن (TTS خاموش)
         sent.clear()
-        talkmod.handle({"chat": {"id": 111}, "from": {"first_name": "م"},
-                        "text": "/remind علی 1 پرداخت قبض را یادت نرود", "message_id": 5}, st, MockTG())
+        real_syn = None
+        try:
+            import tts as ttsmod
+            real_syn = ttsmod.synthesize
+            ttsmod.synthesize = lambda s: None
+        except ImportError:
+            pass
+        st.add_reminder("علی", 111, "پرداخت قبض را یادت نرود", time.time() - 10)
         talkmod.poll_reminders(st, MockTG())
-        check("reminder delivered", any(c == 111 and "قبض" in t for (c, t) in sent if isinstance(t, str)))
+        check("reminder delivered", any(c == 111 and "یادآوری" in x for (c, x) in sent if isinstance(x, str)))
+        # یادآور با صدا (TTS mock) -> send_voice
+        sent.clear()
+        voices = []
+        class MockTGV(MockTG):
+            def send_voice(self, cid, blob):
+                voices.append((cid, len(blob)))
+                return {"ok": True}
+        st.add_reminder("علی", 111, "قبض برق", time.time() - 5)
+        if real_syn is not None:
+            ttsmod.synthesize = lambda s: b"FAKE_MP3_BYTES"
+        talkmod.poll_reminders(st, MockTGV())
+        if real_syn is not None:
+            ttsmod.synthesize = real_syn
+        check("reminder voice sent", len(voices) == 1 and voices[0][0] == 111)
 
         # متن ناشناخته -> fallback (هرگز خالی)
         sent.clear()
