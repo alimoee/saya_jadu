@@ -183,9 +183,25 @@ HYBRID_LLM_SHARE = 0.20         # مغز هیبرید: ۲۰٪ گفتگوها ب�
 VPS_MONTHLY = 8_000_000         # VPS + درگاه + دامنه + متفرقه (ASSUMPTION)
 DUNNING_LOSS = 0.05             # از دست‌رفتن تمدید (بی‌پرداختی/فراموشی)
 
-TRIAL_DAYS = 7                  # سایت: «۷ روز آزمایش رایگان»
+TRIAL_DAYS = 10                 # سایت/ربات: «۱۰ روز آزمایش رایگان» (دستور مالک ۱۴۰۵/۰۶/۲۵)
 TRIALS_PER_PAID = 1.0 / 0.35    # قیف: تریال→پرداخت ۳۵٪
-TRIAL_COST_PER = 12_500         # هزینه‌ی LLM/SMS یک تریال ۷ روزه (ASSUMPTION — متناسب‌شده از ۲۵k/۱۴روز)
+TRIAL_COST_PER = 17_900         # هزینه‌ی LLM/SMS یک تریال ۱۰ روزه (ASSUMPTION — ۱۲.۵k×۱۰/۷)
+
+# ── بسته‌های ربات v2.2 (دستور مالک: حاشیه ≥ ۳۰٪ روی هزینه‌های واقعی) ──
+# شمول: chats=گفتگو، invoices=فاکتور، sms=پیامک/ماه. قیمت ماهانه (تومان).
+PACKAGES_BOT = {
+    "shorou":  dict(label="شروع",  price=330_000,   customers=10,  items=50,
+                    chats=300,  invoices=30,  sms=10,  voice_min=60),
+    "maghaze": dict(label="مغازه", price=990_000,   customers=30,  items=200,
+                    chats=1800, invoices=100, sms=60,  voice_min=120),
+    "bazaar":  dict(label="بازار",  price=1_900_000, customers=100, items=1000,
+                    chats=4800, invoices=250, sms=100, voice_min=300),
+}
+VOICE_HOUR_PRICE = 9_000        # هر ساعت تماس/جواب‌گویی (بدترین فرض ~۵.۷k → حاشیه ۳۶٪)
+EXTRA_PER_10_CUSTOMERS = 75_000 # ماهانه
+EXTRA_PER_50_ITEMS = 50_000     # ماهانه
+RECOVERY_PER_DAY = 3_000        # حق‌البازگشت/روز، از روز هشتمِ عقب‌ماندگی
+BATTERY_UNIT = dict(chat=1_000, invoice=500, voice_min=150)  # نرخ واحدِ باتری (تومان)
 
 # باتری (اعتبار مصرفی) — مصرف خرد ماهانه هر مغازه (ASSUMPTION)
 BATTERY = {
@@ -452,8 +468,14 @@ def selftest():
     assert 0 < plan_month_margin_pct("maghaze", "mini") < 100
     assert plan_month_margin_pct("maghaze", "mid") < 0
     assert plan_month_margin_pct("daftar", "mid") > 0
-    # تریال ۷ روزه (سایت)
-    assert TRIAL_DAYS == 7
+    # تریال ۱۰ روزه (سایت/ربات)
+    assert TRIAL_DAYS == 10
+    # بسته‌های v2.2: حاشیه ≥ ۳۰٪ حتی در بدترین فرض (همه‌ی گفتگوها LLM mini)
+    for k, p in PACKAGES_BOT.items():
+        cost = (p["chats"] * llm_cost_per_chat("mini")
+                + p["invoices"] * 50 + p["sms"] * SMS_COST)
+        assert (p["price"] - cost) / p["price"] >= 0.30, (k, cost)
+    assert (VOICE_HOUR_PRICE - 30 * llm_cost_per_chat("mini")) / VOICE_HOUR_PRICE >= 0.30
     # بنیاد: ماه
     assert arpu_monthly(cycle="month") > arpu_monthly(cycle="quarter")
     print("UNIT-ECON SELFTEST OK")
