@@ -108,6 +108,9 @@ def selftest():
 
         # فاکتور با بک‌اند mock -> پیش‌نمایش مالک + تأیید
         import talk as talkmod
+        # ساعت کل selftest روی قبل از ۹ قفل می‌شود تا گزارش صبح زودتر از تستِ خودش فراموی‌نشود
+        real_tdh0 = talkmod._local_day_hour
+        talkmod._local_day_hour = lambda _now=None: (datetime.date.today(), 8)
         real_ocr = talkmod.ocrmod.ocr_image
         talkmod.ocrmod.ocr_image = lambda b: sample
         msg = {"chat": {"id": 999, "type": "private"},
@@ -385,6 +388,7 @@ def selftest():
         talkmod._handle_inner = real_h
         check("no crash on error", any("ایراد گذرا" in t for (_c, t) in sent if isinstance(t, str)))
 
+    talkmod._local_day_hour = real_tdh0
     print("\nSELFTEST OK: %d/%d" % (ok, ok))
     return 0
 
