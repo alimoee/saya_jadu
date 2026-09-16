@@ -150,7 +150,7 @@ def selftest():
         check("manual total parsed", st.last_invoice()["total"] == 5000000)
         # مشتری: فقط درخواست، بدون ثبت خودکار
         # (طرح جدید: مشتری باید حساب/انبارداری داشته — قبلاً این کار را onboarding می‌کرد)
-        st.upsert_account(555, name="علی", status="active", plan="shorou",
+        st.upsert_account(555, name="علی", status="active", plan="harsheh",
                           period_end=int(time.time()) + 30 * 86400,
                           units_total=1000.0, units_left=500.0)
         n_before = st.invoice_count()
@@ -238,7 +238,14 @@ def selftest():
         check("customer /pay blocked",
               any(c == 555 and "صاحب مغازه" in x for (c, x) in sent if isinstance(x, str)))
         check("balance unchanged", st.credit_balance("علی") == 800000)
-        for cmd in ("/credit علی 100000", "/balance علی", "/stats", "/remind علی 30 سلام"):
+        # چتِ بی‌حساب: هیچ فرمان مالی نمی‌خورد — هدایت می‌شود به onboarding
+        sent.clear()
+        talkmod.handle({"chat": {"id": 777}, "from": {"first_name": "بی‌حساب"},
+                        "text": "/credit علی 100000", "message_id": 51}, st, MockTG())
+        check("stranger /credit not executed",
+              st.credit_balance("علی") == 800000
+              and any(c == 777 and "نام مغازه" in x for (c, x) in sent if isinstance(x, str)))
+        for cmd in ("/balance علی", "/stats", "/remind علی 30 سلام"):
             sent.clear()
             talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
                             "text": cmd, "message_id": 51}, st, MockTG())
@@ -425,7 +432,7 @@ def selftest():
     acc = st.get_account(CUST)
     check("account created", acc is not None and acc["status"] == "trial")
     import pricing as pricingmod
-    check("trial units", acc["units_total"] == pricingmod.units_included("shorou"))
+    check("trial units", acc["units_total"] == pricingmod.units_included(pricingmod.TRIAL_PLAN))
     check("trial 10 days", abs((acc["period_end"] - time.time()) / 86400 - 10) < 0.01)
     check("onboard done msg", any("۱۰ روز آزمایش" in x for (_c, x) in sent if isinstance(x, str)))
     check("verification 100%", acc["verification"] == 100)
@@ -478,7 +485,7 @@ def selftest():
     sent.clear()
     talkmod.handle(mm("/charge علی"), st, MockTG())
     acc = st.get_account(CUST)
-    check("charge reactivates", acc["status"] == "active" and acc["units_left"] == pricingmod.units_included("shorou"))
+    check("charge reactivates", acc["status"] == "active" and acc["units_left"] == pricingmod.units_included(pricingmod.TRIAL_PLAN))
     check("charge period +30d", abs((acc["period_end"] - time.time()) / 86400 - 30) < 0.05)
 
     # مالک: /manage + /note + /plan + /battery
@@ -487,8 +494,41 @@ def selftest():
     check("manage list", any("📇" in x for (_c, x) in sent if isinstance(x, str)))
     talkmod.handle(mm("/note علی مشتری خوب است"), st, MockTG())
     check("note saved", (st.get_account(CUST).get("notes") or "") == "مشتری خوب است")
-    talkmod.handle(mm("/plan علی مغازه"), st, MockTG())
-    check("plan changed", st.get_account(CUST)["plan"] == "maghaze")
+    talkmod.handle(mm("/plan علی حرفه‌ای"), st, MockTG())
+    check("plan changed", st.get_account(CUST)["plan"] == "harsheh")
+
+    # ضدِ حسابِ کاسب: شارژِ اضافه هرگز ارزانی‌تر از نسخه‌ی بالاتر نیست
+    check("anti-arbitrage", pricingmod.anti_arbitrage())
+
+    # دروازه‌ی امکانات: حرفه‌ای -> OCR می‌رود (اینجا بدون بک‌اند: fallback)
+    sent.clear()
+    talkmod.handle(cm(photo=True), st, MockTG())
+    check("pro photo -> ocr path", any("مبلغ را بفرست" in x or "جمع کل" in x for (_c, x) in sent if isinstance(x, str)))
+    # پایه -> upsell
+    talkmod.handle(mm("/plan علی پایه"), st, MockTG())
+    sent.clear()
+    talkmod.handle(cm(photo=True), st, MockTG())
+    check("base photo upsell", any("نسخه‌ی حرفه‌ای/عمده‌فروش" in x for (_c, x) in sent if isinstance(x, str)))
+    sent.clear()
+    talkmod.handle(cm(voice=True), st, MockTG())
+    check("base voice upsell", any("نسخه‌ی حرفه‌ای/عمده‌فروش" in x for (_c, x) in sent if isinstance(x, str)))
+    sent.clear()
+    talkmod.handle(cm("/credit تست 100000 2026-12-01"), st, MockTG())
+    check("base credit upsell", any("نسخه‌ی حرفه‌ای/عمده‌فروش" in x for (_c, x) in sent if isinstance(x, str)))
+    # «ارتقا» -> مالک
+    sent.clear()
+    talkmod.handle(cm("ارتقا"), st, MockTG())
+    check("upgrade relayed", any("درخواست **ارتقا**" in x for (_c, x) in sent if isinstance(x, str)))
+    # گزارش صبحِ حسابِ حرفه‌ای
+    talkmod.handle(mm("/plan علی حرفه‌ای"), st, MockTG())
+    talkmod._local_day_hour = lambda _now=None: (datetime.date.today(), 9)
+    sent.clear()
+    talkmod._scan_accounts(st, MockTG())
+    talkmod._local_day_hour = real_tdh
+    check("account morning sent", any("گزارش صبحِ" in x and "باتری" in x for (_c, x) in sent if isinstance(x, str)))
+    sent.clear()
+    talkmod._scan_accounts(st, MockTG())
+    check("account morning once/day", sum(1 for _c, x in sent if isinstance(x, str) and "گزارش صبحِ" in x) == 0)
     sent.clear()
     talkmod.handle(cm("/battery"), st, MockTG())
     check("customer battery info", any("باتری" in x for (_c, x) in sent if isinstance(x, str)))
