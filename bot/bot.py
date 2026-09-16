@@ -5,8 +5,8 @@
 تست آفلاین:  python3 bot.py --selftest     (بدون توکن، بدون شبکه)
 فقط stdlib؛ بک‌اند OCR/STT اختیاری (env) با fallback محترمانه."""
 import os
-import signal
 import sys
+import signal
 import threading
 import time
 
@@ -149,6 +149,10 @@ def selftest():
                         "text": "مبلغ: " + _fa("5,000,000"), "message_id": 40}, st, MockTG())
         check("manual total parsed", st.last_invoice()["total"] == 5000000)
         # مشتری: فقط درخواست، بدون ثبت خودکار
+        # (طرح جدید: مشتری باید حساب/انبارداری داشته — قبلاً این کار را onboarding می‌کرد)
+        st.upsert_account(555, name="علی", status="active", plan="shorou",
+                          period_end=int(time.time()) + 30 * 86400,
+                          units_total=1000.0, units_left=500.0)
         n_before = st.invoice_count()
         sent.clear()
         talkmod.handle({"chat": {"id": 555}, "from": {"first_name": "علی"},
@@ -160,7 +164,8 @@ def selftest():
         sent.clear()
         talkmod.handle({"chat": {"id": 111}, "from": {"first_name": "م"},
                         "text": "/start", "message_id": 3}, st, MockTG())
-        check("manager greeting", any("منشی دیجیتال" in t for (_c, t) in sent if isinstance(t, str)))
+        # طرح جدید: چتِ ناشناس -> onboarding (یا گرامت مدیر اگر مالک باشد)
+        check("start greets", any("منشی" in t for (_c, t) in sent if isinstance(t, str)))
 
         # پیام مشتری -> مدیر
         sent.clear()
@@ -387,6 +392,123 @@ def selftest():
         talkmod.handle({"chat": {"id": 111}, "text": "y", "message_id": 7}, st, MockTG())
         talkmod._handle_inner = real_h
         check("no crash on error", any("ایراد گذرا" in t for (_c, t) in sent if isinstance(t, str)))
+
+    # ── حساب‌ها: تریال ۱۰ روزه + باتری + اخطار + یخ + رسید + مالک ──
+    print("\u2014 accounts / battery —")
+    tdA = tempfile.mkdtemp()
+    st = storemod.Store(os.path.join(tdA, "acc.db"))
+    CUST = 666
+    def cm(*text, photo=False, voice=False):
+        m = {"chat": {"id": CUST, "type": "private"},
+             "from": {"first_name": "علی"}, "message_id": 900 + len(sent)}
+        if photo:
+            m["photo"] = [{"file_id": "R1"}]
+        if voice:
+            m["voice"] = {"file_id": "V1", "duration": 30}
+        if text:
+            m["text"] = text[0]
+        return m
+    def mm(text):
+        return {"chat": {"id": 999, "type": "private"},
+                "from": {"first_name": "م"}, "text": text, "message_id": 1000 + len(sent)}
+    sent.clear()
+    talkmod.handle(cm("/start"), st, MockTG())
+    check("onboard q1 name", any("نامت" in x for (_c, x) in sent if isinstance(x, str)))
+    talkmod.handle(cm("علی"), st, MockTG())
+    talkmod.handle(cm("سوپرمارکت خونه"), st, MockTG())
+    talkmod.handle(cm("خرده‌فروشی"), st, MockTG())
+    talkmod.handle(cm("کرج"), st, MockTG())
+    talkmod.handle(cm("09123456789"), st, MockTG())
+    talkmod.handle(cm("40"), st, MockTG())
+    sent.clear()
+    talkmod.handle(cm("120"), st, MockTG())
+    acc = st.get_account(CUST)
+    check("account created", acc is not None and acc["status"] == "trial")
+    import pricing as pricingmod
+    check("trial units", acc["units_total"] == pricingmod.units_included("shorou"))
+    check("trial 10 days", abs((acc["period_end"] - time.time()) / 86400 - 10) < 0.01)
+    check("onboard done msg", any("۱۰ روز آزمایش" in x for (_c, x) in sent if isinstance(x, str)))
+    check("verification 100%", acc["verification"] == 100)
+    check("manager notified", any("مشتریِ جدید" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # شارژ باتری: هر گفتگو = ۱ واحد
+    before = acc["units_left"]
+    sent.clear()
+    talkmod.handle(cm("سلام"), st, MockTG())
+    check("battery charged 1 unit", st.get_account(CUST)["units_left"] == before - 1.0)
+    check("customer relayed to mgr", any("مشتری (علی)" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # هشدار کم‌باتری در عبور از آستانه
+    st.upsert_account(CUST, units_total=100.0, units_left=21.0)
+    sent.clear()
+    talkmod.handle(cm("سلام"), st, MockTG())
+    check("battery low warn at 20%", any("باتری: ۲۰٪" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # باتری خالی
+    st.upsert_account(CUST, units_left=0.0)
+    sent.clear()
+    talkmod.handle(cm("سلام"), st, MockTG())
+    check("battery empty blocks", any("باتری خالی" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # اخطار عقب‌افتادگی (روز ۲) -> وضعیت overdue + پیام قرمز
+    st.upsert_account(CUST, period_end=int(time.time()) - 2 * 86400, status="trial")
+    sent.clear()
+    talkmod._scan_accounts(st, MockTG())
+    acc = st.get_account(CUST)
+    check("overdue status", acc["status"] == "overdue")
+    check("overdue red warn", any("اطلاعاتِ شما حذف خواهد شد" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # روز هشتم -> یخ + خبر مالک
+    st.upsert_account(CUST, period_end=int(time.time()) - 8 * 86400, last_warn=0)
+    sent.clear()
+    talkmod._scan_accounts(st, MockTG())
+    acc = st.get_account(CUST)
+    check("frozen after 8 days", acc["status"] == "frozen")
+    check("frozen notice", any("یخ‌زده" in x for (_c, x) in sent if isinstance(x, str)))
+    check("frozen mgr told", any("یخ‌زد" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # رسید: مشتریِ یخ‌زده عکس می‌فرستد -> مالک
+    sent.clear()
+    talkmod.handle(cm(photo=True), st, MockTG())
+    acc = st.get_account(CUST)
+    check("receipt pending", acc["receipt_pending"] == 1)
+    check("receipt to manager", any(isinstance(x, str) and x.startswith("PHOTO:🧾") for (_c, x) in sent))
+
+    # مالک: /charge -> فعال + شارژ
+    sent.clear()
+    talkmod.handle(mm("/charge علی"), st, MockTG())
+    acc = st.get_account(CUST)
+    check("charge reactivates", acc["status"] == "active" and acc["units_left"] == pricingmod.units_included("shorou"))
+    check("charge period +30d", abs((acc["period_end"] - time.time()) / 86400 - 30) < 0.05)
+
+    # مالک: /manage + /note + /plan + /battery
+    sent.clear()
+    talkmod.handle(mm("/manage"), st, MockTG())
+    check("manage list", any("📇" in x for (_c, x) in sent if isinstance(x, str)))
+    talkmod.handle(mm("/note علی مشتری خوب است"), st, MockTG())
+    check("note saved", (st.get_account(CUST).get("notes") or "") == "مشتری خوب است")
+    talkmod.handle(mm("/plan علی مغازه"), st, MockTG())
+    check("plan changed", st.get_account(CUST)["plan"] == "maghaze")
+    sent.clear()
+    talkmod.handle(cm("/battery"), st, MockTG())
+    check("customer battery info", any("باتری" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # حق‌البازگشت: ۱۰ روز عقب -> ۴ روز × ۳٬۰۰ = ۱٬۰۰
+    st.upsert_account(CUST, period_end=int(time.time()) - 10 * 86400, status="active")
+    fee = pricingmod.recovery_fee(st.get_account(CUST), int(time.time()))
+    check("recovery fee 4 days", fee == 12000)
+    sent.clear()
+    talkmod.handle(mm("/recover علی"), st, MockTG())
+    check("recover asks confirm", any("۱۲٬۰۰۰" in x for (_c, x) in sent if isinstance(x, str)))
+    sent.clear()
+    talkmod.handle(mm("/recover علی yes"), st, MockTG())
+    check("recover reactivates", st.get_account(CUST)["status"] == "active")
+    check("recover fee msg", any("بازگردانی" in x for (_c, x) in sent if isinstance(x, str)))
+
+    # ممنوعیت: مشتری نمی‌تواند /manage بزند
+    sent.clear()
+    talkmod.handle(cm("/manage"), st, MockTG())
+    check("customer forbidden manage", any("مخصوص صاحب مغازه" in x for (_c, x) in sent if isinstance(x, str)))
 
     talkmod._local_day_hour = real_tdh0
     print("\nSELFTEST OK: %d/%d" % (ok, ok))
