@@ -24,6 +24,20 @@ CREATE TABLE IF NOT EXISTS credits(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   customer TEXT, chat_id INTEGER, amount INTEGER, paid INTEGER DEFAULT 0,
   due INTEGER, status TEXT DEFAULT 'open', created_at INTEGER);
+CREATE TABLE IF NOT EXISTS accounts(
+  chat_id INTEGER PRIMARY KEY,
+  name TEXT, shop TEXT, trade TEXT, city TEXT, phone TEXT,
+  n_customers INTEGER DEFAULT 0, n_items INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'trial',
+  plan TEXT DEFAULT 'shorou',
+  verification INTEGER DEFAULT 0,
+  period_end INTEGER DEFAULT 0,
+  units_total REAL DEFAULT 0,
+  units_left REAL DEFAULT 0,
+  last_warn INTEGER DEFAULT 0,
+  receipt_pending INTEGER DEFAULT 0,
+  notes TEXT DEFAULT '',
+  created_at INTEGER, updated_at INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS log(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +128,62 @@ class Store:
                     "UPDATE customers SET name=?, phone=? WHERE chat_id=?",
                     (name or row["name"], phone or row["phone"], chat_id),
                 )
+
+    # ── accounts (سابک/اعتبار — باتری نمادی) ────────────
+    def upsert_account(self, chat_id, **kw):
+        cols = ("name", "shop", "trade", "city", "phone", "n_customers",
+                "n_items", "status", "plan", "verification", "period_end",
+                "units_total", "units_left", "last_warn", "receipt_pending",
+                "notes")
+        now = int(time.time())
+        with self._conn() as c:
+            c.execute("INSERT OR IGNORE INTO accounts(chat_id, created_at, updated_at)"
+                      " VALUES(?,?,?)", (chat_id, now, now))
+            sets = [k for k in kw if k in cols]
+            if sets:
+                sql = "UPDATE accounts SET updated_at=?,%s WHERE chat_id=?" % (
+                    ",".join('"%s"=?' % s for s in sets))
+                c.execute(sql, [now] + [kw[s] for s in sets] + [chat_id])
+        return self.get_account(chat_id)
+
+    def get_account(self, chat_id):
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM accounts WHERE chat_id=?",
+                          (chat_id,)).fetchone()
+            return dict(r) if r is not None else None
+
+    def account_by_name(self, name):
+        name = (name or "").strip()
+        if not name:
+            return None
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM accounts WHERE name=? COLLATE NOCASE"
+                          " OR shop=? COLLATE NOCASE LIMIT 1", (name, name)).fetchone()
+            return dict(r) if r is not None else None
+
+    def list_accounts(self):
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM accounts ORDER BY updated_at DESC").fetchall()
+            return [dict(r) for r in rows]
+
+    def charge_units(self, chat_id, delta):
+        """کسری/اضافه‌کردن واحدِ باتری. برگردان: واحدهای باقی‌مانده (>=0)."""
+        with self._conn() as c:
+            r = c.execute("SELECT units_left FROM accounts WHERE chat_id=?",
+                          (chat_id,)).fetchone()
+            if r is None:
+                return 0.0
+            new_left = max(0.0, (r["units_left"] or 0) - delta)
+            c.execute("UPDATE accounts SET units_left=?, updated_at=? WHERE chat_id=?",
+                      (new_left, int(time.time()), chat_id))
+            return new_left
+
+    def add_units(self, chat_id, units):
+        with self._conn() as c:
+            c.execute("UPDATE accounts SET units_left=units_left+?, updated_at=?"
+                      " WHERE chat_id=?", (units, int(time.time()), chat_id))
+        a = self.get_account(chat_id)
+        return (a or {}).get("units_left", 0.0)
 
     def get_customer(self, chat_id):
         with self._conn() as c:
