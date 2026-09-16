@@ -55,7 +55,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,212,94,.45)}70%{box-shadow:0 0 0 18px rgba(255,212,94,0)}100%{box-shadow:0 0 0 0 rgba(255,212,94,0)}}
 .lampTip{position:fixed;bottom:40px;inset-inline-start:102px;background:var(--panel);border:1px solid var(--gold2);color:var(--gold);padding:8px 16px;border-radius:999px;font-size:13px;z-index:60;animation:fadein .8s .8s both}
 @keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
-.chat{position:fixed;bottom:104px;inset-inline-start:22px;width:min(390px,calc(100vw - 44px));max-height:min(560px,74vh);background:var(--panel);border:1px solid var(--gold2);border-radius:18px;display:flex;flex-direction:column;overflow:hidden;z-index:70;transform:translateY(16px) scale(.97);opacity:0;pointer-events:none;transition:.25s}
+.chat{position:fixed;bottom:104px;inset-inline-start:22px;width:min(390px,calc(100vw - 44px));max-width:calc(100vw - 44px);max-height:min(560px,74vh);max-height:min(560px,calc(100dvh - 132px));background:var(--panel);border:1px solid var(--gold2);border-radius:18px;display:flex;flex-direction:column;overflow:hidden;z-index:70;transform:translateY(16px) scale(.97);opacity:0;pointer-events:none;transition:.25s}
 .chat.open{transform:none;opacity:1;pointer-events:auto}
 .chat header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:linear-gradient(135deg,#241d0d,#171420);border-bottom:1px solid var(--line)}
 .chat header svg{width:30px;height:19px}
@@ -92,6 +92,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
 .qa b{color:var(--gold);font-size:15px;display:block}
 .qa p{color:var(--dim);font-size:13.5px;margin-top:6px}
 @media (max-width:640px){.hero video{aspect-ratio:9/12;object-position:70% 35%}.lampTip{display:none}}
+@media (max-height:560px){ .chat{bottom:84px;max-height:calc(100dvh - 104px)} .msgs{min-height:140px} }
 </style>
 
 <script type="application/ld+json">
@@ -223,7 +224,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
   <div class="veil"></div>
   <div class="copy">
     <h1>سایا — چراغ جادوی واقعی کسب‌وکار</h1>
-    <p>منشی دیجیتال مغازه‌ات: <span class="fa">24/7</span> می‌فروشد، حساب را گم نمی‌کند، مشتری‌ات را به یاد می‌آورد</p>
+    <p>تو که در حالِ کاری، سایه‌ات با سایا می‌شود؛ اگر خودت نباشی، سایه‌ات هست.</p>
     <span style="display:flex;flex-wrap:wrap;justify-content:center">
       <button class="btn gold" onclick="lamp.open()">آرزو کن، چراغ باز می‌شود</button>
       <a class="btn ghost" href="#trades">دیدن صنوف</a>
@@ -255,7 +256,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
     <div class="stats">
       <div class="stat"><b class="fa">90→0</b><span>دقیقۀ شب‌کاری: قبل ← حالا</span></div>
       <div class="stat"><b>24/7</b><span>پاسخ‌گویی شب و روز</span></div>
-      <div class="stat"><b class="fa">12</b><span>صنف، از روزِ یکم آماده</span></div>
+      <div class="stat"><b class="fa">12</b><span>صنفِ آماده</span></div>
     </div>
   </div>
 </section>
@@ -263,7 +264,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
 <section id="demoTrades" style="background:#101017">
   <div class="wrap">
     <h2>برای هر صنف، یک جادو</h2>
-    <p class="sub">صنف خود را انتخاب کن — دموِ زنده (محصولات، فاکتورها و مشتری‌ها) همان لحظه به مغازه‌ی همان صنف تغییر می‌کند</p>
+    <p class="sub">هر صنف، یک چراغ</p>
     <div class="tradeChips" id="tradeChips"></div>
   </div>
 </section>
@@ -271,10 +272,9 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
 <section id="trades">
   <div class="wrap">
     <h2>جادو را در حرکت ببین</h2>
-    <p class="sub">با اسکرول، ویدیوها روشن می‌شوند</p>
+    <p class="sub">با اسکرول روشن می‌شود — و با انتخاب صنف، تصویر همان صنف</p>
     <div class="trades">
-      <div class="card"><video muted loop playsinline preload="none"><source src="assets/tools.mp4" type="video/mp4"></video><div class="cap"><b>ابزار و یراق:</b> فروشنده کالایش را به چراغ می‌سپارد</div></div>
-      <div class="card"><video muted loop playsinline preload="none"><source src="assets/hero.mp4" type="video/mp4"></video><div class="cap"><b>مدیر آسوده:</b> اقلام از قفسه به سمت خروجی و مشتری می‌روند</div></div>
+      <div class="card"><video id="tradeHeroVid" muted loop playsinline preload="none"><source src="assets/hero.mp4" type="video/mp4"></video><img id="tradeHeroImg" hidden alt="" style="width:100%;display:block;object-fit:cover"><div class="cap" id="tradeHeroCap"><b>مدیر آسوده:</b> اقلام از قفسه به سمت خروجی و مشتری می‌روند</div></div>
     </div>
   </div>
 </section>
@@ -344,7 +344,7 @@ footer{border-top:1px solid var(--line);padding:26px 0;text-align:center;color:v
   <header>
     <svg viewBox="0 0 100 60"><path d="M38 24 Q38 15 47 13 Q48 8 52 8 Q56 8 56 13 Q65 15 65 24" fill="#FFD45E"/><path d="M14 40 Q14 27 30 24 L62 24 Q79 24 82 34 L93 30 Q98 28 95 34 Q92 39 82 41 Q75 53 49 53 Q22 53 16 45 Q14 43 14 40 Z" fill="#FFD45E"/><path d="M16 42 Q7 42 7 33 Q7 26 16 27" fill="none" stroke="#E0A82E" stroke-width="4" stroke-linecap="round"/></svg>
     <div><b id="chatShop">مغازه‌ی مرتضی ابزار</b><small id="chatSub">مرتضی • ابزار • آماده</small></div>
-    <button class="hbtn" id="tts" title="پاسخ با صدا">🔇</button>
+    <button class="hbtn" id="tts" title="پاسخ با صدا">🔊</button>
     <button class="x" onclick="lamp.close()">✕</button>
   </header>
   <div class="msgs" id="msgs"></div>
@@ -554,7 +554,7 @@ function greetText(){
 }
 
 /* ================= TTS ================= */
-var ttsOn = false, faVoice = null;
+var ttsOn = true, faVoice = null;
 var hasTTS = ('speechSynthesis' in window);
 function pickVoice(){ try{ if(!hasTTS) return; var vs = speechSynthesis.getVoices(); for(var i=0;i<vs.length;i++){ if(/fa/i.test(vs[i].lang)){ faVoice = vs[i]; break; } } }catch(e){} }
 if(hasTTS){ pickVoice(); try{ speechSynthesis.onvoiceschanged = pickVoice; }catch(e){} }
@@ -822,8 +822,13 @@ function buildTradeChips(){
     tradeBox.appendChild(b);
   });
 }
+var TRADE_IMG = { abzar:'assets/trades/abzar.jpg', atar:'assets/trades/atar.jpg', restoran:'assets/trades/restoran.jpg', sarakhti:'assets/trades/sarakhti.jpg', karfakht:'assets/trades/karfakht.jpg', omdeh:'assets/trades/omdeh.jpg', kharade:'assets/trades/kharade.jpg', mobile:'assets/trades/generic.jpg', pishvak:'assets/trades/generic.jpg', idi:'assets/trades/generic.jpg', talaa:'assets/trades/generic.jpg', kafe:'assets/trades/generic.jpg' };
 function setTrade(id, reset){
   currentTrade = id; IND = TRADES[id];
+  try{ var ti = $('tradeHeroImg'), tv = $('tradeHeroVid'), tc = $('tradeHeroCap');
+    if(ti && TRADE_IMG[id]){ ti.src = TRADE_IMG[id]; ti.hidden = false;
+      if(tv){ try{ tv.pause(); }catch(e){} tv.hidden = true; }
+      if(tc){ tc.innerHTML = '<b>' + IND.label + ':</b> منشیِ همین صنف'; } } }catch(e){}
   $('chatShop').textContent = IND.shop;
   $('chatSub').textContent = IND.owner + ' • ' + IND.label + ' • آماده';
   var ids = Object.keys(TRADES), cs = tradeBox.childNodes;
