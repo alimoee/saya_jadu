@@ -512,8 +512,10 @@ def _maybe_morning_report(store, tg):
     key = "last_report_%d%02d%02d" % (d.year, d.month, d.day)
     if store.get_setting(key):
         return
-    store.set_setting(key, "1")
-    tg.safe_send(_manager_id(), morning_report_text(store, d), store, "morning")
+    ok = tg.safe_send(_manager_id(), morning_report_text(store, d), store, "morning")
+    if ok:
+        # فقط بعد از ارسال موفق علامت می‌خورد؛ در غیر این صورت فردا جبران می‌شود
+        store.set_setting(key, "1")
 
 
 # ── حلقه‌ی یادآورها (از bot.py صدا می‌شود) ──────────────
