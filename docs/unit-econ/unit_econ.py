@@ -35,12 +35,14 @@ VOICE_SHARE = 0.4       # ASSUMPTION: ۴۰٪ گفتگوها صوتی (همان �
 # ── پلن‌های سایتِ منتشرشده (هر فصل = ۹۰ روز) ────────
 # قیمت از سایت زنده (فصلی). «chats» = مصرف مفروض ماهانه (ASSUMPTION برای
 # مغازه/مغازه+؛ دفتر از سایت: ۲۰۰ مکالمه/ماه + فراتر ۲۰۰ فاکتور ۵۰ تومان).
+# v3 (اعداد مالک ۲۶ شهریور ۱۴): قیمت ماهانه + VAT عبوری؛ chats = شمول مکالمه/تماس
 PLANS = {
-    "maghaze":      dict(label="مغازه",   price=990_000,   chats=1800, sms=30,  extra_invoice_t=0),
-    "maghaze_plus": dict(label="مغازه+",  price=1_900_000, chats=4800, sms=60,  extra_invoice_t=0),
-    "daftar":       dict(label="دفتر",    price=3_900_000, chats=200,  sms=100, extra_invoice_t=100 * 500),
+    "payeh":   dict(label="پایه",   price=2_100_000,  chats=60,  sms=30,  extra_invoice_t=0),
+    "harsheh": dict(label="حرفه‌ای/عمده‌فروش",    price=5_300_000,  chats=250, sms=60,  extra_invoice_t=0),
+    "tolid":   dict(label="حرفه‌ای/تولیدکننده", price=15_000_000, chats=150, sms=100, extra_invoice_t=0),
 }
-EXTRA_INVOICE_PRICE = 500     # تومان/فاکتور (دفتر، فراتر از ۲۰۰) — از سایت
+EXTRA_INVOICE_PRICE = 20_000  # تومان/فاکتورِ شارژ (v3)
+VAT = 0.10               # ارزش‌افزوده: عبوری (نه درآمد)     # تومان/فاکتور (دفتر، فراتر از ۲۰۰) — از سایت
 # ── تناقض دوره‌ی صورتحساب (یافته‌ی کلیدی v2) ──────────
 # سایت هم «۹۹۰ هزار به‌ازای هر فصل» و هم «یعنی ۳۳ هزار در روز» نوشته.
 # ۳۳k × ۹۰ روز = ۲.۹۷M ≠ ۹۹k  →  پس «۳۳ هزار در روز» فقط با دوره‌ی ۳۰ روزه درست است.
@@ -52,7 +54,7 @@ CYCLES = {
 SEASONS_PER_MONTH = 1.0 / 3.0  # فقط برای تفسیر quarter
 
 # ترکیب مصرف‌کننده (ASSUMPTION)
-MIX = {"maghaze": 0.60, "maghaze_plus": 0.30, "daftar": 0.10}
+MIX = {"payeh": 0.60, "harsheh": 0.30, "tolid": 0.10}
 
 # هزینه ثابت تیم مینیمال (ASSUMPTION — عدد سند v1؛ ورودی مالک)
 FIXED_MINIMAL = 950_000_000    # تومان/ماه
@@ -180,37 +182,47 @@ ONBOARD_COST = int(ONBOARD_HOURS * WAGE_H)   # یک‌باره/مغازه
 
 HYBRID_LLM_SHARE = 0.20         # مغز هیبرید: ۲۰٪ گفتگوها به LLM (بقیه الگویی)
 
-VPS_MONTHLY = 8_000_000         # VPS + درگاه + دامنه + متفرقه (ASSUMPTION)
+VPS_MONTHLY = 3_000_000        # سرور حداقلیِ واقعی مالک: ۴ هسته + ۱۰ گیگ
+GATEWAY_MISC = 500_000         # درگاه + دامنه + متفرقه (ASSUMPTION)
+INFLATION_M = 0.05             # تورم: ۵٪ ماهانه روی قیمت (و هزینه‌ی متغیر) — دستور مالک         # VPS + درگاه + دامنه + متفرقه (ASSUMPTION)
 DUNNING_LOSS = 0.05             # از دست‌رفتن تمدید (بی‌پرداختی/فراموشی)
 
 TRIAL_DAYS = 10                 # سایت/ربات: «۱۰ روز آزمایش رایگان» (دستور مالک ۱۴۰۵/۰۶/۲۵)
 TRIALS_PER_PAID = 1.0 / 0.35    # قیف: تریال→پرداخت ۳۵٪
-TRIAL_COST_PER = 17_900         # هزینه‌ی LLM/SMS یک تریال ۱۰ روزه (ASSUMPTION — ۱۲.۵k×۱۰/۷)
+TRIAL_COST_PER = 12_700         # هزینه‌ی LLM/SMS یک تریال ۱۰ روزه (ASSUMPTION — ۱۲.۵k×۱۰/۷)
 
-# ── بسته‌های ربات v2.2 (دستور مالک: حاشیه ≥ ۳۰٪ روی هزینه‌های واقعی) ──
-# شمول: chats=گفتگو، invoices=فاکتور، sms=پیامک/ماه. قیمت ماهانه (تومان).
+# ── بسته‌ها v3 (مطابق bot/pricing.py) ─────────────────
 PACKAGES_BOT = {
-    "shorou":  dict(label="شروع",  price=330_000,   customers=10,  items=50,
-                    chats=300,  invoices=30,  sms=10,  voice_min=60),
-    "maghaze": dict(label="مغازه", price=990_000,   customers=30,  items=200,
-                    chats=1800, invoices=100, sms=60,  voice_min=120),
-    "bazaar":  dict(label="بازار",  price=1_900_000, customers=100, items=1000,
-                    chats=4800, invoices=250, sms=100, voice_min=300),
+    "payeh":   dict(label="پایه",   price=2_100_000,  customers=30,  items=50,  chats=60),
+    "harsheh": dict(label="حرفه‌ای/عمده‌فروش",    price=5_300_000,  customers=75,  items=75,  chats=250),
+    "tolid":   dict(label="حرفه‌ای/تولیدکننده", price=15_000_000, customers=100, items=300, chats=150),
 }
-VOICE_HOUR_PRICE = 9_000        # هر ساعت تماس/جواب‌گویی (بدترین فرض ~۵.۷k → حاشیه ۳۶٪)
-EXTRA_PER_10_CUSTOMERS = 75_000 # ماهانه
-EXTRA_PER_50_ITEMS = 50_000     # ماهانه
+UPSELL_PRICE = dict(chat=40_000, invoice=20_000,
+                    per_10_customers=1_000_000, per_50_items=4_000_000)
 RECOVERY_PER_DAY = 3_000        # حق‌البازگشت/روز، از روز هشتمِ عقب‌ماندگی
-BATTERY_UNIT = dict(chat=1_000, invoice=500, voice_min=150)  # نرخ واحدِ باتری (تومان)
+
+def anti_arbitrage():
+    """هیچ‌وقت «نسخه‌ی پایین + شارژ» ارزانی‌تر از نسخه‌ی بالاتر نمی‌شود."""
+    import math
+    order = ["payeh", "harsheh", "tolid"]
+    for lo, hi in zip(order, order[1:]):
+        a, b = PACKAGES_BOT[lo], PACKAGES_BOT[hi]
+        cost = (math.ceil(max(0, b["customers"] - a["customers"]) / 10.0) * UPSELL_PRICE["per_10_customers"]
+                + math.ceil(max(0, b["items"] - a["items"]) / 50.0) * UPSELL_PRICE["per_50_items"]
+                + max(0, b["chats"] - a["chats"]) * UPSELL_PRICE["chat"])
+        if cost <= PACKAGES_BOT[hi]["price"] - PACKAGES_BOT[lo]["price"]:
+            return False
+    return True
+
 
 # باتری (اعتبار مصرفی) — مصرف خرد ماهانه هر مغازه (ASSUMPTION)
 BATTERY = {
-    "maghaze":      dict(extra_invoices=150, extra_llm_chats=100),
-    "maghaze_plus": dict(extra_invoices=400, extra_llm_chats=300),
-    "daftar":       dict(extra_invoices=300, extra_llm_chats=150),
+    "payeh":   dict(extra_invoices=20, extra_llm_chats=30),
+    "harsheh": dict(extra_invoices=50, extra_llm_chats=100),
+    "tolid":   dict(extra_invoices=30, extra_llm_chats=50),
 }
-BATTERY_PRICE_PER_INVOICE = 500      # تومان (سایت، پلن دفتر)
-BATTERY_PRICE_PER_LLM_CHAT = 1_000   # تومان — تأیید مالک ۲۵ شهریور ۱۴۰۵ (≈۵× هزینه‌ی mini)
+BATTERY_PRICE_PER_INVOICE = 20_000   # تومان — v3 (هم‌نرخ شارژ)      # تومان (سایت، پلن دفتر)
+BATTERY_PRICE_PER_LLM_CHAT = 40_000  # تومان — v3 (هم‌نرخ شارژ)   # تومان — تأیید مالک ۲۵ شهریور ۱۴۰۵ (≈۵× هزینه‌ی mini)
 
 def battery_monthly(plan, age, fx=FX):
     """(درآمد، هزینه) باتری ماهِ age هر مغازه. مصرف ۳ ماه اول ramp-up دارد."""
@@ -262,6 +274,7 @@ def cashflow_v2(months=18, target_slope=120, onboarding_capacity=30,
     cohorts = []
     for m in range(1, months + 1):
         fx_m = FX * (1.0 + fx_drift) ** (m / 6.0)
+        infl = (1 + INFLATION_M) ** (m - 1)   # تورم ۵٪ ماهانه (دستور مالک)
         new_m = min(int(round(target_slope * min(1.0, m / 6.0))), onboarding_capacity)
         new_series.append(new_m)
         cohorts.append(new_m)
@@ -273,13 +286,13 @@ def cashflow_v2(months=18, target_slope=120, onboarding_capacity=30,
                 active.append((cnt * surv, age))
         # درآمد اشتراک
         if cycle == "month":
-            sub_in = sum(c * arpu_mix for c, a in active) * (1 - DUNNING_LOSS)
+            sub_in = sum(c * arpu_mix for c, a in active) * infl * (1 - DUNNING_LOSS)
         else:
             sub_in = 0.0
             for c, a in active:
                 if a % 3 == 1:  # ماه پرداخت: ۱،۴،۷،...
                     sub_in += c * price_mix
-            sub_in *= (1 - DUNNING_LOSS)
+            sub_in *= infl * (1 - DUNNING_LOSS)
         # باتری
         bat_in = bat_cost = 0.0
         if include_battery:
@@ -288,8 +301,8 @@ def cashflow_v2(months=18, target_slope=120, onboarding_capacity=30,
                 bat_cost += c * bat_cost_mix[min(a, months)]
         # هزینه‌ها
         var_out = sum(c * var_mix for c, a in active)
-        # تورم FX فقط روی بخش دلاری هزینه (LLM) اثر دارد — تقریب:
-        var_out *= (1 + (fx_m / FX - 1.0) * 0.5)
+        # تورم: ۵٪ ماهانه + FX فقط روی بخش دلاری هزینه (LLM) اثر دارد — تقریب:
+        var_out *= infl * (1 + (fx_m / FX - 1.0) * 0.5)
         out = (fixed + new_m * (ONBOARD_COST + TRIALS_PER_PAID * TRIAL_COST_PER) + var_out)
         net_m = (sub_in + bat_in) - (out + bat_cost)
         net.append(net_m)
@@ -314,11 +327,11 @@ def min_growth_for_be(months=18, fixed=FIXED_MINIMAL, cycle="month", lo=10, hi=4
 
 
 def report():
-    today = datetime.date(2026, 9, 15)
-    print("اقتصاد واحد سایا — مدل v2.1 (بنیاد: چرخه‌ی ۳۰روزه) — %s" % today)
+    today = datetime.date(2026, 9, 16)
+    print("اقتصاد واحد سایا — مدل v2.3 (بنیاد: چرخه‌ی ۳۰روزه + تورم ۵٪/ماه) — %s" % today)
     print("FX=%s ت/دلار | markup LLM ×%.1f | صوت: رایگان (edge-tts+Vosk)\n" % (format(FX, ","), LLM_MARKUP))
     print("— چرخه‌ی صورتحساب: ۳۰ روز (تصمیم مالک ۲۵ شهریور ۱۴۰) —")
-    print("  تناقض قدیمی سایت («هر فصل» vs «۳۳k/روز») با پچ ۲۵ شهریور رفع شد؛ بنیاد: ماه (۹۹۰k/ماه = ۳۳k/روز)")
+    print("  تناقض قدیمی سایت («هر فصل» vs «۳۳k/روز») با پچ ۲۵ شهریور رفع شد؛ بنیاد: ماه — v3: پایه ۲.۱M تا تولید ۱۵M/ماه (+VAT عبوری، تورم ۵٪/ماه)")
     for c in ("quarter", "month"):
         tag = "بنیاد (ماه)" if c == "month" else "ردشده (فصل)"
         print("  %-18s ARPU مؤثر ماهانه %s ت" % (tag, format(int(arpu_monthly(cycle=c)), ",")))
@@ -327,7 +340,7 @@ def report():
     for m in ("rule", "mini", "mid"):
         hdr += " %14s" % ("LLM " + m)
     print(hdr)
-    for k in ("maghaze", "maghaze_plus", "daftar"):
+    for k in ("payeh", "harsheh", "tolid"):
         p = PLANS[k]
         row = "%-10s %14s" % (p["label"], format(p["price"], ","))
         for m in ("rule", "mini", "mid"):
@@ -336,6 +349,8 @@ def report():
     print("\n— هزینه‌ی LLM بر هر گفتگو (تومان) —")
     for m in ("mini", "mid", "top"):
         print("  %-5s %s" % (m, format(int(llm_cost_per_chat(m)), ",")))
+    print("\n— زیرساخت (حقیقی مالک): سرور %s ت/ماه (۴ هسته+۱۰ گیگ) + درگاه/متفرقه %s ت + تورم ۵٪/ماه —"
+          % (format(VPS_MONTHLY, ","), format(GATEWAY_MISC, ",")))
     print("\n— سربه‌سر (تیم مینیمال %s ت/ماه) —" % format(FIXED_MINIMAL, ","))
     for m in ("rule", "mini"):
         b = breakeven_shops(model=m)
@@ -354,7 +369,7 @@ def report():
                 label, slope, ("ماه %d" % be) if be else "هرگز در ۱۸ ماه", format(int(-burn), ",")))
     print("  (بدون چرخش — مدل v1) base: " +
           "ماه %d" % cashflow(shops_per_month=120, arpu=a_m, no_churn=True)[1])
-    print("\n— مدل واقع‌بینانه v2.1 (ramp + سقف آنبردینگ + تریال + دنینگ + باتری) —")
+    print("\n— مدل واقع‌بینانه v2.3 (ramp + سقف آنبردینگ + تریال + دنینگ + باتری + تورم ۵٪) —")
     for cycle in ("quarter", "month"):
         for cap in (30, 120):
             _n, be, burn, _ns = cashflow_v2(target_slope=120, onboarding_capacity=cap, cycle=cycle)
@@ -381,7 +396,7 @@ def report():
         (FIXED_MINIMAL, mg, mg, "حداقل رشد محاسبه‌شده (%s/ماه)" % format(mg, ",")),
         (450_000_000, 80, 80, "تیم لاغر (۴۵۰M) + رشد ۸۰/ماه"),
         (450_000_000, 60, 60, "تیم لاغر (۴۵۰M) + رشد ۶۰/ماه"),
-        (FIXED_MINIMAL, 30, 30, "تنها مالک (سقف ۳۰/ماه) — عدم امکان"),
+        (FIXED_MINIMAL, 30, 30, "تنها مالک (سقف ۳۰/ماه)"),
     ):
         _n, be, burn, _ns = cashflow_v2(target_slope=slope, onboarding_capacity=cap,
                                         cycle="month", fixed=fixed)
@@ -400,13 +415,12 @@ def selftest():
     # حاشیه: rule-based همه مثبت (هزینه ≈ فقط SMS)
     for k in PLANS:
         assert plan_quarter_margin(k, "rule") > 0, k
-    # LLM mid برای مغازه ضررده است
-    assert plan_quarter_margin("maghaze", "mid") < 0
-    # دفتر با ۲۰۰ گفتگو حتی با mini سالم می‌ماند
-    assert plan_quarter_margin("daftar", "mini") > 0
+    # v3: قیمت‌های جدید — حتی mid برای همه‌ی پلن‌ها حاشیه‌دار
+    for k in PLANS:
+        assert plan_quarter_margin(k, "mid") > 0, k
     # ARPU مثبت و کمتر از max پلن
     a = arpu_monthly()
-    assert 0 < a < 3_900_000 * SEASONS_PER_MONTH + 100 * 500 * 3
+    assert 0 < a < 15_000_000 * SEASONS_PER_MONTH + 300_000
     # تناقض دوره: تفسیر month حتماً ARPU بالاتر از quarter (۳ برابر)
     assert abs(arpu_monthly(cycle="month") - 3 * arpu_monthly(cycle="quarter")) < 1.0
     # سربه‌سر: quarter (درآمد کمتر) → تعداد مغازه بیشتر
@@ -422,19 +436,21 @@ def selftest():
     # جریان نقدی
     a_q = arpu_monthly()
     a_m = a_q * 3.0
-    # فصلی + چرخش واقعی: حتی bull در ۱۸ ماه به سربه‌سر نمی‌رسد (یافته‌ی کلیدی)
+    # v3: با قیمت‌های جدید، فصلی هم در مقیاس bull سربه‌سر می‌شود (یافته‌ی v2 «هرگز» رد شد)
     _n, be_q_bull, _b = cashflow(shops_per_month=250, arpu=a_q)
-    assert be_q_bull is None
+    assert be_q_bull is not None and be_q_bull <= 12
+    assert cashflow(shops_per_month=120, arpu=a_q)[1] is not None  # فصلی + base هم تا ۱۸ ماه
     # ماهانه + چرخش: base سربه‌سر می‌شود، bull زودتر
     _n, be_b, _b = cashflow(shops_per_month=120, arpu=a_m)
     be_bull = cashflow(shops_per_month=250, arpu=a_m)[1]
-    assert be_b is not None and 6 <= be_b <= 14, be_b
+    assert be_b is not None and 1 <= be_b <= 8, be_b
     assert be_bull is not None and be_bull < be_b
     # مدل v1 (بدون چرخش) زودتر سربه‌سر می‌شود
     be_nochurn = cashflow(shops_per_month=120, arpu=a_m, no_churn=True)[1]
     assert be_nochurn is not None and be_nochurn < be_b
-    # bear هرگز
-    assert cashflow(shops_per_month=40, arpu=a_m)[1] is None
+    # v3: حتی bear به سربه‌سر می‌رسد (ولی دیر)
+    be_bear = cashflow(shops_per_month=40, arpu=a_m)[1]
+    assert be_bear is not None and be_bear >= 10
     # منطقی‌سازی: افزایش fixed → سربه‌سر بیشتر
     assert breakeven_shops(fixed=FIXED_WITH_GROWTH, model="rule") > b_rule
     # v2.1: باتری حاشیه‌دار
@@ -463,19 +479,19 @@ def selftest():
     assert be_drift is None or be_drift >= (be_fresh or 1)
     # team_breakdown جمع می‌شود
     assert abs(sum(v for _n, v in team_breakdown()) - FIXED_MINIMAL) < 1
-    # حاشیه‌ی چرخه‌ی ۳۰روزه (بنیاد)
-    assert plan_month_margin_pct("maghaze", "rule") > 95
-    assert 0 < plan_month_margin_pct("maghaze", "mini") < 100
-    assert plan_month_margin_pct("maghaze", "mid") < 0
-    assert plan_month_margin_pct("daftar", "mid") > 0
+    # حاشیه‌ی چرخه‌ی ۳۰روزه (بنیاد) — v3
+    assert plan_month_margin_pct("payeh", "rule") > 99
+    assert 0 < plan_month_margin_pct("payeh", "mini") < 100
+    assert plan_month_margin_pct("tolid", "mid") > 90
     # تریال ۱۰ روزه (سایت/ربات)
     assert TRIAL_DAYS == 10
-    # بسته‌های v2.2: حاشیه ≥ ۳۰٪ حتی در بدترین فرض (همه‌ی گفتگوها LLM mini)
+    # بسته‌های v3: حاشیه ≥ ۳۰٪ حتی در بدترین فرض + ضدِ حسابِ کاسب
     for k, p in PACKAGES_BOT.items():
-        cost = (p["chats"] * llm_cost_per_chat("mini")
-                + p["invoices"] * 50 + p["sms"] * SMS_COST)
+        cost = p["chats"] * llm_cost_per_chat("mini") + 30 * 50 + 100 * SMS_COST
         assert (p["price"] - cost) / p["price"] >= 0.30, (k, cost)
-    assert (VOICE_HOUR_PRICE - 30 * llm_cost_per_chat("mini")) / VOICE_HOUR_PRICE >= 0.30
+    assert anti_arbitrage()
+    # تورم ۵٪ ماهانه فعال (۱۱ ماه ≈ ×۱.۷)
+    assert (1 + INFLATION_M) ** 11 > 1.7
     # بنیاد: ماه
     assert arpu_monthly(cycle="month") > arpu_monthly(cycle="quarter")
     print("UNIT-ECON SELFTEST OK")
