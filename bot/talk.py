@@ -139,6 +139,12 @@ NOTE_OK = "📝 یادداشت رفت روی حسابِ {name}."
 PLAN_OK = "📦 بسته‌ی {name} → {label} شد (باتری بر اساسِ شمولِ بسته پر شد)."
 MANAGE_EMPTY = "هنوز حسابی نیست."
 BATTERY_INFO = "🔋 باتری: {pct}٪ — {left} از {total} واحد خدمت\nبسته: {label}\nانقضای دوره: {date}"
+FEATURE_UPSELL = ("🔒 این قابلیت در **نسخه‌ی {label}** و بالاتر فعال است.\n"
+                  "پیام «ارتقا» بفرست تا صاحبِ حساب برای ارتقای حسابت اطلاع پیدا کند.")
+UPGRADE_RELAY = "📈 {name} ({shop}) درخواست **ارتقا** دارد — چت: {chat_id}"
+ACCOUNT_MORNING = ("☀️ گزارش صبحِ {shop} ({date})\n"
+                   "🔋 باتری: {pct}٪ — {left} از {total} مکالمهٔ این دوره\n"
+                   "بسته: {label} — فعال تا {end}")
 NEW_CUST = ("🆕 مشتریِ جدید: {name} — {shop} ({trade}، {city})\n"
             "تأیید اطلاعات: {pct}٪ | چت: {chat_id}\n"
             "تریال ۱۰ روزه شروع شد. مدیریت: /manage")
@@ -163,14 +169,13 @@ def handle(msg, store, tg):
 
 
 def _msg_units(msg):
-    """هزینه‌ی یک پیام به واحد خدمت (صدا بر اساسِ طول، عکس=فاکتور، متن=گفتگو)."""
+    """هزینه‌ی یک پیام به واحد خدمت (v3): تماس/صدا=۱، عکس=فاکتور ۰.۵، متن=مکالمه ۱."""
     if "voice" in msg:
-        sec = (msg.get("voice") or {}).get("duration") or 30
-        return max(0.05, sec / 60.0 * pricing.UNIT_PRICE["voice_min"] / 1000.0)
+        return pricing.UNITS["chat"]
     if "photo" in msg:
-        return 0.5
+        return pricing.UNITS["invoice"]
     if msg.get("text"):
-        return 1.0
+        return pricing.UNITS["chat"]
     return 0.0
 
 
@@ -214,6 +219,10 @@ def _handle_inner(msg, store, tg, chat_id, name, is_manager):
     # ۱) صوت (ماژول A)
     _processed = {"done": False}
     if "voice" in msg:
+        if acct is not None and not pricing.allows(acct, "voice"):
+            tg.safe_send(chat_id, FEATURE_UPSELL.format(
+                label="حرفه‌ای/عمده‌فروش"), store, "upsell-voice")
+            return
         blob = _voice_bytes(msg, store, tg)
         text = _stt(blob)
         if text:
@@ -230,6 +239,11 @@ def _handle_inner(msg, store, tg, chat_id, name, is_manager):
 
     # ۲) عکس -> فاکتور
     if "photo" in msg:
+        if acct is not None and not pricing.allows(acct, "ocr-invoice"):
+            tg.safe_send(chat_id, FEATURE_UPSELL.format(
+                label="حرفه‌ای/عمده‌فروش")
+                + "\nدر نسخه‌ی پایه: «مبلغ: عدد» بفرست.", store, "upsell-ocr")
+            return
         _handle_photo(msg, store, tg, chat_id, name, is_manager)
         _maybe_charge(store, tg, chat_id, acct, prev_pct, _msg_units(msg), is_manager)
         return
@@ -494,10 +508,29 @@ def _resolve_account(store, target):
 
 
 def _scan_accounts(store, tg):
-    """یک‌بار در هر دورِ حلقه: اخطارِ روزانه + یخ‌زدگی پس از ۷ روز."""
+    """یک‌بار در هر دورِ حلقه: گزارش صبحِ حساب‌ها + اخطار روزانه + یخ‌زدگی."""
     now = int(time.time())
     mgr = _manager_id()
+    d, h = _local_day_hour()
     for a in store.list_accounts():
+        # گزارش صبح برای صاحبِ حساب‌های حرفه‌ای (امکانشان morning باشد)
+        if (a.get("status") == pricing.STATUS_ACTIVE and h >= 9
+                and pricing.allows(a, "morning")):
+            mkey = "acct_morning_%s_%d%02d%02d" % (
+                a["chat_id"], d.year, d.month, d.day)
+            if not store.get_setting(mkey):
+                p = pricing.PACKAGES.get(a.get("plan") or pricing.TRIAL_PLAN)
+                pe = a.get("period_end") or 0
+                tg.safe_send(a["chat_id"], ACCOUNT_MORNING.format(
+                    shop=a.get("shop") or a.get("name") or "?",
+                    date=jalali(d),
+                    pct=fa_num(pricing.battery_pct(a), sep=False),
+                    left=fa_num(int(a.get("units_left") or 0), sep=False),
+                    total=fa_num(int(a.get("units_total") or 0), sep=False),
+                    label=p["label"],
+                    end=jalali(datetime.date.fromtimestamp(pe)) if pe else "—"),
+                    store, "acct-morning")
+                store.set_setting(mkey, "1")
         if a.get("status") == pricing.STATUS_FROZEN:
             continue
         pe = a.get("period_end") or 0
@@ -541,9 +574,16 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
 
     # دروازه‌ی دسترسی (issue #2، با AI-B): فرمان‌های مالی/انباری/یادآور فقط از چت مالک
     if not is_manager and t.startswith(MANAGER_ONLY_CMDS):
-        store.log("forbidden-cmd", "chat=%s text=%s" % (chat_id, t[:80]))
-        tg.safe_send(chat_id, CUSTOMER_FORBIDDEN, store)
-        return
+        # v3: /credit برای صاحبِ حساب — اگر نسخه‌اش ندارد: upsell، نه «مسدود»
+        a2 = store.get_account(chat_id) if t.startswith("/credit") else None
+        if t.startswith("/credit") and a2 is not None and not pricing.allows(a2, "credit"):
+            tg.safe_send(chat_id, FEATURE_UPSELL.format(
+                label="حرفه‌ای/عمده‌فروش"), store, "upsell-credit")
+            return
+        if not (t.startswith("/credit") and a2 is not None and pricing.allows(a2, "credit")):
+            store.log("forbidden-cmd", "chat=%s text=%s" % (chat_id, t[:80]))
+            tg.safe_send(chat_id, CUSTOMER_FORBIDDEN, store)
+            return
 
     if t in ("بله", "تأیید", "درست"):
         p = store.pop_pending(chat_id)
@@ -720,7 +760,7 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
                     pk = k
                     break
             if pk is None:
-                tg.safe_send(chat_id, "بسته‌ها: شروع / مغازه / بازار", store)
+                tg.safe_send(chat_id, "نسخه‌ها: پایه / حرفه‌ای / تولید", store)
                 return
             units = pricing.units_included(pk)
             store.upsert_account(a["chat_id"], plan=pk,
@@ -747,10 +787,25 @@ def _handle_text(text, store, tg, chat_id, name, is_manager):
             tg.safe_send(chat_id, "✅ مبلغت برای صاحب مغازه رفت؛ پس از تأیید او ثبت می‌شود.", store)
         return
 
+    if not is_manager and t in ("ارتقا", "آپگرید", "upgrade"):
+        a = store.get_account(chat_id) or {}
+        if _manager_id():
+            tg.safe_send(_manager_id(), UPGRADE_RELAY.format(
+                name=a.get("name") or name or chat_id,
+                shop=a.get("shop") or "?", chat_id=chat_id), store, "upgrade")
+        tg.safe_send(chat_id, "✅ درخواستت برای صاحبِ حساب رفت — به‌زودی خبر می‌گیری.", store)
+        return
+
     if t.startswith("/credit") or t.startswith("/approve"):
         if t.startswith("/approve") and not is_manager:
             tg.safe_send(chat_id, FALLBACK, store)
             return
+        if t.startswith("/credit") and not is_manager:
+            a = store.get_account(chat_id)
+            if a is not None and not pricing.allows(a, "credit"):
+                tg.safe_send(chat_id, FEATURE_UPSELL.format(
+                    label="حرفه‌ای/عمده‌فروش"), store, "upsell-credit")
+                return
         _cmd_credit(t, store, tg, chat_id, approved=t.startswith("/approve"))
         return
 
